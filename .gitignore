@@ -1,0 +1,6 @@
+figures/
+python/utils/__pycache__/
+python/ode_solvers/__pycache__/
+python/pde_solvers/__pycache__/
+python/data/gain_matrix.npz
+python/visuals/__pycache__

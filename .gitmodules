@@ -1,0 +1,6 @@
+[submodule "fluid-engine-dev"]
+	path = fluid-engine-dev
+	url = https://github.com/doyubkim/fluid-engine-dev.git
+[submodule "PyElastica"]
+	path = PyElastica
+	url = https://github.com/GazzolaLab/PyElastica.git
