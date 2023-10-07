@@ -21,7 +21,7 @@ counter = 0
 # Geometrical input of the silicone arm (section)
 E        = 110e3                          # [Pa] Young's modulus 110e3 //
 eta      = 3e3                            # [Pa*s] shear viscosity modulus 5e3 //
-Poi      = 0                              # [-]Poisson modulus 0.5 //
+Poi      = 0.45                              # [-]Poisson modulus 0.5 //
 G        = E/(2*(1+Poi))                  # [Pa] shear modulus //
 R        = 100e-3  #10e-3                 # [m]  arm radius 10e-3 //
 L        = 200e-3 #62.5e-3                # [m] Arm length 250e-3//
