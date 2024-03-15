@@ -17,7 +17,7 @@ def plot_axis_strains(ax, bundle, ref, _labelsize = 18, title=None, plot_type="p
                         ylabel=None, xlim=(-0.5, 10), ylim=[-0.02, 0.2], xy_pos=None,
                         _fontdict = {'fontsize':50, 'fontweight':'bold'}, \
                         plt_idx=4, lw=10, plt_len=None, save=False, annotate=True,  savename=None, \
-                        save_dir = join(expanduser("~"), "Documents/Papers/Pubs23/SoRoBC/figures")):
+                        save_dir = join(expanduser("~"), "Documents/Papers/MSRYears/SoRoBC/figures")):
    
     
 
@@ -66,7 +66,7 @@ def plot_axis_strains(ax, bundle, ref, _labelsize = 18, title=None, plot_type="p
     ax.set_xlim(xlim); ax.set_ylim(ylim); ax.grid('on')
     
     ax.set_ylabel(ylabel,  fontdict= {'fontsize':45, 'fontweight':'bold'})
-    ax.set_xlabel(rf'Solutions per centisecond',  fontdict= _fontdict)
+    ax.set_xlabel(rf'Total RKF Iterations (X100)',  fontdict= _fontdict)
     ax.set_title(title, _fontdict)
 
     ax.tick_params(axis='both', which='major', labelsize=28)
@@ -147,7 +147,8 @@ def joint_space_plotter(bundle, labelsize=18, linewidth=6, fontdict = {'fontsize
             
         ax.set_aspect("auto")
     
-    save_dir = join(expanduser("~"), "Documents/Papers/Pubs23/SoRoBC/figures")
+    # save_dir = join(expanduser("~"), "Documents/Papers/Pubs23/SoRoBC/figures")
+    save_dir = join(expanduser("~"), "Documents/Papers/MSRYears/SoRoBC/figures")
 
     colors = iter(plt.cm.inferno_r(np.linspace(.25, 1, 6)))
     if sections_plot:
