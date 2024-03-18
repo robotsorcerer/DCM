@@ -37,7 +37,7 @@ Cable-driven, strain twist setpoint terrestrial control & Fluid-actuated, strain
 Here are the results of position control with no gravity-compensation & Gravity-compensated terrestrial position control.
 
 <div align="center">
-  <img src="/resources/072423_pos_control.jpg" height="250px" width="350px">
+  <img src="/resources/PD_control_long.jpg" height="250px" width="350px">
   <img src="/resources/fixed_fluid_pos.jpg" height="250px" width="350px">
 </div>
 
