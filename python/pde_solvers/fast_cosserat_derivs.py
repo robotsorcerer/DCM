@@ -1,4 +1,4 @@
-__all__ = ["piecewise_pdes"]
+__all__ = ["piecewise_fast_pdes"]
 
 __author__      = "Lekan Molu"
 __copyright__   = "2022, Discrete Cosserat SoRO Analysis in Python"
@@ -25,7 +25,7 @@ from torch.linalg import pinv, norm
 torch.set_default_dtype(torch.float64)
 
 
-def piecewise_pdes(t, state_derivs, gv):
+def piecewise_fast_pdes(t, state_derivs, gv):
     device = state_derivs.device
     qd_save, qd_dot_save, qd_ddot_save = \
         gv.qd_save, gv.qd_dot_save, gv.qd_ddot_save
@@ -240,6 +240,34 @@ def piecewise_pdes(t, state_derivs, gv):
     genTorque          += torch.vstack((L*(Fa1-Fi1).unsqueeze(1), torch.zeros((6*(num_pieces-1),1)).to(device))) # cavo tip2base
     CableForces             = torch.vstack(( (invAdjg1_last @ intdAdjg1_last).T @ (invAdjg1R_last @ Fp1), torch.zeros((6*(num_pieces-1),1)).to(device) ))
     genCableForces          += Jaco_prev.T @ CableForces
+
+    """
+        Now that we have genMasM, genCoriolis1, genDragForces, genGraV, genTorque, and genCableForces
+        we must partition the matrices into fast and slow ones.
+    """
+
+    print(f"genMasM: {genMasM.shape} genCoriolis1: {genCoriolis1.shape} genDragForces: {genDragForces.shape} genCableForces: {genCableForces.shape}")
+    
+    b, h = genMasM.shape 
+    assert b == h, 'mass matrix must be block diagonal'
+    core_indices = (slice(num_sections, b-num_sections) , slice(num_sections, h-num_sections))
+
+    genMasMCore        = genMasM[core_indices]
+    genCoriolisCore1   = genCoriolis1[core_indices]
+    genDragForcesCore  = genDragForces[core_indices]
+    genCableForcesCore = genCableForces[core_indices[0]]
+
+    print(genMasMCore.shape)
+
+    perturb_indices1 = (slice(0, num_sections), slice(0, num_sections)) 
+    perturb_indices2 = (slice(b-num_sections, b), slice(b-num_sections, b))
+
+    genMasMPerturb = torch.block_diag(genMasM[perturb_indices1], genMasM[perturb_indices2])
+    genCoriolis1Perturb = torch.block_diag(genCoriolis1[perturb_indices1], genCoriolis1[perturb_indices2])
+    genDragForcesPerturb = torch.block_diag(genDragForces[perturb_indices1], genDragForces[perturb_indices2])
+    genCableForcesPerturb = torch.vstack((genCableForces[perturb_indices1[0]], genCableForces[perturb_indices2[0]]))
+    
+    print(genMasMPerturb)
 
     # recursive factors
     if num_pieces !=  1:
