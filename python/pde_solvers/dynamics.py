@@ -1,47 +1,137 @@
-__all__ = ["piecewise_slow_pdes"]
+__all__ = ["compute_fwd_dynamics"]
 
 __author__      = "Lekan Molu"
-__copyright__   = "2022, Discrete Cosserat SoRO Analysis in Python"
+__copyright__   = "2024, Discrete Cosserat SoRO Analysis in Python"
 __credits__     = "Tcur are None."
 __license__     = "Molux Licence"
 __maintainer__  = "Lekan Molu"
 __email__       = "patlekno@icloud.com"
-__comments__    = "This code was written under white out conditions before Christmas Eve."
 __loc__         = "Marathon, Broome County, New York"
 __date__        = "December 23, 2022"
 __status__      = "Completed"
 
 import copy
-import time
 import torch
-import numpy as np
-from os.path import join
-from utils.cosserat_utils import *
 from utils.config import *
-from utils.matlab_utils import eps, Bundle, strcmp, isfield
-from scipy.integrate import cumulative_trapezoid
+from utils.cosserat_utils import *
+from collections import namedtuple
+from utils.matlab_utils import isfield
 
 from torch.linalg import pinv, norm
 torch.set_default_dtype(torch.float64)
 
+# M, C1, C2, D = 36 x 36
+#  F, T, G, Nterm = 36 x 1
+Dynamics = namedtuple('Dynamics', ('M', 'C1', 'C2', 'D', 'F', 'G', 'T', 'Nterm'))
 
-def piecewise_slow_pdes(t, state_derivs, gv):
-    device = state_derivs.device
-    qd_save, qd_dot_save, qd_ddot_save = \
-        gv.qd_save, gv.qd_dot_save, gv.qd_ddot_save
-    global counter, tsol
-    counter += 1
+# preallocations 
+device = 'cuda:0'
 
+"Mass matrix for the current configuration, parameterized by X"
+MasX            = torch.zeros((6,6*num_sections)).to(device)
+LMasX           = torch.zeros((6,6*num_sections)).to(device)
+RMasX           = torch.zeros((6,6*num_sections)).to(device)
+LRMasX          = torch.zeros((6,6*num_sections)).to(device)
+
+"Coriolis forces 1"
+Co1X            = torch.zeros((6,6*num_sections)).to(device)
+LCo1X           = torch.zeros((6,6*num_sections)).to(device)
+RCo1X           = torch.zeros((6,6*num_sections)).to(device)
+LRCo1X          = torch.zeros((6,6*num_sections)).to(device)
+
+"Coriolis forces 2"
+Co2X            = torch.zeros((6,6*num_sections)).to(device)
+LCo2X           = torch.zeros((6,6*num_sections)).to(device)
+
+"Drag forces"
+DragX           = torch.zeros((6,6*num_sections)).to(device)  
+LDragX          = torch.zeros((6,6*num_sections)).to(device)  
+RDragX          = torch.zeros((6,6*num_sections)).to(device)  
+LRDragX         = torch.zeros((6,6*num_sections)).to(device)  
+
+Mas_prev        = torch.zeros((6,6)).to(device)
+LMas_prev       = torch.zeros((6,6)).to(device)
+RMas_prev       = torch.zeros((6,6)).to(device)
+LRMas_prev      = torch.zeros((6,6)).to(device)
+
+Co1_prev        = torch.zeros((6,6)).to(device)
+LCo1_prev       = torch.zeros((6,6)).to(device)
+RCo1_prev       = torch.zeros((6,6)).to(device)
+LRCo1_prev      = torch.zeros((6,6)).to(device)
+
+Co2_prev        = torch.zeros((6,6)).to(device)
+LCo2_prev       = torch.zeros((6,6)).to(device)
+
+Drag_prev       = torch.zeros((6,6)).to(device)  
+LDrag_prev      = torch.zeros((6,6)).to(device)  
+RDrag_prev      = torch.zeros((6,6)).to(device)  
+LRDrag_prev     = torch.zeros((6,6)).to(device)  
+
+num_sections    = gv["num_sections"] 
+# num_pieces      = gv["num_pieces"] 
+
+# sectional matrices per discretization in each piece
+MasX             = torch.zeros((6,6*num_sections)).to(device)
+LMasX            = torch.zeros((6,6*num_sections)).to(device)
+LRMasX           = torch.zeros((6,6*num_sections)).to(device)
+
+DragX            = torch.zeros((6, 6*num_sections)).to(device)
+LDragX            = torch.zeros((6, 6*num_sections)).to(device)
+LRDragX          = torch.zeros((6,6*num_sections)).to(device)  
+
+LRCo1X           = torch.zeros((6,6*num_sections)).to(device)
+
+Mas_prev         = torch.zeros((6,6)).to(device)
+LMas_prev        = torch.zeros((6,6)).to(device)
+LRMas_prev       = torch.zeros((6,6)).to(device)
+    
+Drag_prev        = torch.zeros((6,6)).to(device)  
+LDrag_prev       = torch.zeros((6,6)).to(device)  
+LRDrag_prev      = torch.zeros((6,6)).to(device)  
+
+LRCo1_prev       = torch.zeros((6,6)).to(device)
+
+# Initialize previous kinematics
+g_r              = torch.tensor([[0.0, -1.0, 0.0, 0.0],
+                            [1.0, 0.0, 0.0, 0.0],
+                            [0.0, 0.0, 1.0, 0.0],
+                            [0.0, 0.0, 0.0, 1.0]]).to(device)     # cantilever
+g_prev           = torch.asarray(torch.diagflat((torch.ones((4)).to(device))))
+eta_prev         = torch.zeros((6)).to(device)
+
+def compute_fwd_dynamics(t, state_derivs, gv):
+    """
+        Returns the whole robot dynamics at time t
+    """   
+    device      = state_derivs.device
+    num_pieces  = gv.num_pieces 
+
+    Jaco_prev   = torch.diagflat(torch.cat((
+                                torch.ones((1,6)).to(device),
+                                torch.zeros((1, 6*(num_pieces-1))).to(device)
+                            ), axis=1))
+
+    # initialization of dynamics coefficients
+    genMasM          = torch.zeros([6*num_pieces,6*num_pieces]).to(device)
+    genDragForces    = torch.zeros([6*num_pieces,6*num_pieces]).to(device)
+    genCoriolis1     = torch.zeros([6*num_pieces,6*num_pieces]).to(device)
+    genCoriolis2     = torch.zeros([6*num_pieces,6*num_pieces]).to(device)
+    genTorque        = torch.zeros([6*num_pieces,1]).to(device) # Generalized Forces F(q)
+    genGraV          = torch.zeros([6*num_pieces,6]).to(device) # Generalized gravitational forces \mc{G}
+    genCableForces   = torch.zeros([6*num_pieces,1]).to(device) # Drag load
+
+    adetan_prev      = torch.zeros((6*num_pieces,6*num_pieces)).to(device)
 
     L           =   gv.L
     Eps         =   gv.Eps
     Upsilon     =   gv.Upsilon
     M           =   gv.M
+
     xci_star    =   gv.xci_star
     Gra         =   gv.Gra
     dX          =   gv.dX
     X           =   gv.X
-    num_sections=   gv.num_sections
+    num_sections=   gv.num_sections   # sections in each piece
     num_pieces  =   gv.num_pieces
     tact        =   gv.tact
     trel        =   gv.trel
@@ -59,62 +149,24 @@ def piecewise_slow_pdes(t, state_derivs, gv):
     Fpmz        =   gv.Fpmz(num_pieces)
     D           =   gv.Drag if isfield(gv, "Drag") else None
 
-    #-------------------------------------------------------------------------
-    # actual solution xci xcidot
-
-    Xci              = state_derivs[:6*num_pieces]
-    Xcidot           = state_derivs[6*num_pieces:12*num_pieces]
-
-    # initialization of dynamics coefficients
-    genMasM          = torch.zeros([6*num_pieces,6*num_pieces]).to(device)
-    genDragForces    = torch.zeros([6*num_pieces,6*num_pieces]).to(device)
-    genCoriolis1     = torch.zeros([6*num_pieces,6*num_pieces]).to(device)
-    genCoriolis2     = torch.zeros([6*num_pieces,6*num_pieces]).to(device)
-    genTorque        = torch.zeros([6*num_pieces,1]).to(device) # Generalized Forces F(q)
-    genGraV          = torch.zeros([6*num_pieces,6]).to(device) # Generalized gravitational forces \mc{G}
-    genCableForces   = torch.zeros([6*num_pieces,1]).to(device) # Drag load
-
-    # Initialize previous kinematics
-    g_r              = torch.tensor([[0.0, -1.0, 0.0, 0.0],
-                                    [1.0, 0.0, 0.0, 0.0],
-                                    [0.0, 0.0, 1.0, 0.0],
-                                    [0.0, 0.0, 0.0, 1.0]]).to(device)     # cantilever
-    Jaco_prev        = torch.diagflat(torch.cat((
-                                        torch.ones((1,6)).to(device),
-                                        torch.zeros((1, 6*(num_pieces-1))).to(device)
-                                    ), axis=1))
-    g_prev           = torch.asarray(torch.diagflat((torch.ones((4)).to(device))))
-    eta_prev         = torch.zeros((6)).to(device)
-    adetan_prev      = torch.zeros((6*num_pieces,6*num_pieces)).to(device)
+    # Xci         = state_derivs[:6*num_pieces]
+    # Xcidot      = state_derivs[6*num_pieces:12*num_pieces]
+    state_len   = len(state_derivs)//2
+    Xci         = state_derivs[:state_len]
+    Xcidot      = state_derivs[state_len:,]
 
     #-------------------------------------------------------------------------
     # calculate the components of the dynamic coefficients
 
     # mass and coriolis 1 of the first section
-    xci1             = Xci[:6,].squeeze()
-    xcidot1          = Xcidot[:6,].squeeze()
-    k1               = xci1[:3]
-    theta1           = torch.sqrt(k1.T@k1) # angular strain
-
-    MasX             = torch.zeros((6,6*num_sections)).to(device)
-    LMasX            = torch.zeros((6,6*num_sections)).to(device)
-    LRMasX           = torch.zeros((6,6*num_sections)).to(device)
-    
-    DragX            = torch.zeros((6, 6*num_sections)).to(device)
-    LDragX            = torch.zeros((6, 6*num_sections)).to(device)
-    LRDragX          = torch.zeros((6,6*num_sections)).to(device)  
-
-    LRCo1X           = torch.zeros((6,6*num_sections)).to(device)
-
-    Mas_prev         = torch.zeros((6,6)).to(device)
-    LMas_prev        = torch.zeros((6,6)).to(device)
-    LRMas_prev       = torch.zeros((6,6)).to(device)
-     
-    Drag_prev        = torch.zeros((6,6)).to(device)  
-    LDrag_prev       = torch.zeros((6,6)).to(device)  
-    LRDrag_prev      = torch.zeros((6,6)).to(device)  
-
-    LRCo1_prev       = torch.zeros((6,6)).to(device)
+    xci1 = Xci[:6,].squeeze();   xcidot1 = Xcidot[:6,].squeeze(); k1 = xci1[:3]; 
+    theta1 = torch.sqrt(k1.T@k1) # angular strain
+    # genMasM, genCoriolis1, genGraV, genTorque,genDragForces, genCableForces, genCoriolis2,  adetan_prev,Jaco_prev,\
+    global MasX, LMasX, LRMasX, LRCo1X, DragX, LRDragX, RMasX,  \
+         Co2X, DragX,LDragX, RDragX, RCo1X,  LCo2X, Co1X, LCo1X, Mas_prev, LMas_prev, \
+         LRMas_prev, g_r, eta_prev,  g_prev, LRCo1_prev, Drag_prev, RMas_prev, \
+         Co1_prev, LCo1_prev, RCo1X, RCo1_prev, LRCo1X, LCo2_prev, LDrag_prev, RDrag_prev, LRDragX, Co2_prev, LRDrag_prev
+         
 
     for ii in range(num_sections):
         coAdjg1_cur                     = piecewise_coAdjoint(X[ii],theta1,xci1)        # because J^T = Ad_g^{-1}^T = coAd_g^{-1}
@@ -131,14 +183,14 @@ def piecewise_slow_pdes(t, state_derivs, gv):
 
             \mc{M}_a = \int_{L_{n-1}}^{L_n} Ad_{g_n}^\star \mc{M} @ Ad_{g_n}^{-1}
         """
-        Mas_cur                          = coAdjg1_cur @ M @ inv_Adj_g1_cur
+        Mas_cur                          = coAdjg1_cur.matmul(M).matmul(inv_Adj_g1_cur)
         trapz                            = dX * (Mas_prev + Mas_cur)/2
         "Mass of the Cantilever beam"
         MasX[:,6*ii:6*num_sections]      = MasX[:,6*ii:6*num_sections] + torch.tile(trapz,(1,num_sections-ii))
         Mas_prev                         = copy.copy(Mas_cur)
 
         """
-            Left tangent operator of the exp. map for the mass matrix (eq. 20. Renda TRO18) -- ignoring the last term S_m
+            Left tangent operator of the exp. map for the mass matrix (Fig. 3 and eq. 31. Renda TRO18) -- ignoring the last term S_m
             M_{(n,m)} = \sum_{i=max(n,m)}^N \int_{{L_i -1}}^{L_i} S_n^T  M_a S_m dX
         """
         LMas_cur                         = integ_tang_Adjg1_cur.T @ Mas_cur
@@ -148,12 +200,12 @@ def piecewise_slow_pdes(t, state_derivs, gv):
         LMas_prev                        = copy.copy(LMas_cur)
 
         """
-            Tangent operator of the exp. map for the mass matrix (eq. 20. Renda TRO18) -- including the last term S_m
+            Tangent operator of the exp. map for the mass matrix (Fig. 3 and eq. 31. Renda TRO18) -- including the last term S_m
             in equation (31) i.e.
 
             M_{(n,m)} = \sum_{i=max(n,m)}^N \int_{{L_i -1}}^{L_i} S_n^T  M_a S_m dX.
         """
-        LRMas_cur                        = integ_tang_Adjg1_cur.T @ Mas_cur @ integ_tang_Adjg1_cur
+        LRMas_cur                        = LMas_cur @ integ_tang_Adjg1_cur
         trapz                            = dX * (LRMas_prev + LRMas_cur)/2
         "Add the Mass of the Cantilever beam"
         LRMasX[:,6*ii:6*num_sections]    = LRMasX[:,6*ii:6*num_sections] + torch.tile(trapz,(1,num_sections-ii))
@@ -245,20 +297,6 @@ def piecewise_slow_pdes(t, state_derivs, gv):
         Now that we have genMasM, genCoriolis1, genDragForces, genGraV, genTorque, and genCableForces
         we must partition the matrices into fast and slow ones.
     """
-
-    print(f"genMasM: {genMasM.shape} genCoriolis1: {genCoriolis1.shape} genDragForces: {genDragForces.shape} genCableForces: {genCableForces.shape}")
-    
-    b, h = genMasM.shape 
-    assert b == h, 'mass matrix must be block diagonal'
-
-    perturb_indices1 = (slice(0, num_sections), slice(0, num_sections)) 
-    perturb_indices2 = (slice(b-num_sections, b), slice(b-num_sections, b))
-
-    genMasMPerturb = torch.block_diag(genMasM[perturb_indices1], genMasM[perturb_indices2])
-    genCoriolis1Perturb = torch.block_diag(genCoriolis1[perturb_indices1], genCoriolis1[perturb_indices2])
-    genDragForcesPerturb = torch.block_diag(genDragForces[perturb_indices1], genDragForces[perturb_indices2])
-    genCableForcesPerturb = torch.vstack((genCableForces[perturb_indices1[0]], genCableForces[perturb_indices2[0]]))
-    
     # recursive factors
     if num_pieces !=  1:
         temp_jaco  = invAdjg1_last @ intdAdjg1_last
@@ -268,53 +306,14 @@ def piecewise_slow_pdes(t, state_derivs, gv):
         g_prev     @= piecewise_expmap(X[num_sections-1], theta1, xci1)
         eta_prev   = invAdjg1_last @ (eta_prev + intdAdjg1_last @ xcidot1)
 
+    num_part_pieces = gv.num_part_pieces
     #--------------------------------------------------------------------------
     # masses, Coriolis 1, Coriolis 2 from the second piece onwards
-    for jj in range(1, num_pieces):
+    for jj in range(1, num_part_pieces):
         xcin            = Xci[6*jj:6*jj+6].squeeze()
         xcidotn         = Xcidot[6*jj:6*jj+6].squeeze()
         kn              = xcin[:3].squeeze()
         thetan          = torch.sqrt(kn.T @ kn)
-
-        "Mass matrix for the current configuration, parameterized by X"
-        MasX            = torch.zeros((6,6*num_sections)).to(device)
-        LMasX           = torch.zeros((6,6*num_sections)).to(device)
-        RMasX           = torch.zeros((6,6*num_sections)).to(device)
-        LRMasX          = torch.zeros((6,6*num_sections)).to(device)
-
-        "Coriolis forces 1"
-        Co1X            = torch.zeros((6,6*num_sections)).to(device)
-        LCo1X           = torch.zeros((6,6*num_sections)).to(device)
-        RCo1X           = torch.zeros((6,6*num_sections)).to(device)
-        LRCo1X          = torch.zeros((6,6*num_sections)).to(device)
-
-        "Coriolis forces 2"
-        Co2X            = torch.zeros((6,6*num_sections)).to(device)
-        LCo2X           = torch.zeros((6,6*num_sections)).to(device)
-
-        "Drag forces"
-        DragX           = torch.zeros((6,6*num_sections)).to(device)  
-        LDragX          = torch.zeros((6,6*num_sections)).to(device)  
-        RDragX          = torch.zeros((6,6*num_sections)).to(device)  
-        LRDragX         = torch.zeros((6,6*num_sections)).to(device)  
-
-        Mas_prev        = torch.zeros((6,6)).to(device)
-        LMas_prev       = torch.zeros((6,6)).to(device)
-        RMas_prev       = torch.zeros((6,6)).to(device)
-        LRMas_prev      = torch.zeros((6,6)).to(device)
-
-        Co1_prev        = torch.zeros((6,6)).to(device)
-        LCo1_prev       = torch.zeros((6,6)).to(device)
-        RCo1_prev       = torch.zeros((6,6)).to(device)
-        LRCo1_prev      = torch.zeros((6,6)).to(device)
-
-        Co2_prev        = torch.zeros((6,6)).to(device)
-        LCo2_prev       = torch.zeros((6,6)).to(device)
-
-        Drag_prev       = torch.zeros((6,6)).to(device)  
-        LDrag_prev      = torch.zeros((6,6)).to(device)  
-        RDrag_prev      = torch.zeros((6,6)).to(device)  
-        LRDrag_prev     = torch.zeros((6,6)).to(device)  
 
         for ii in range(num_sections):
             coAdjgn_cur = piecewise_coAdjoint(X[ii],thetan,xcin)
@@ -435,6 +434,7 @@ def piecewise_slow_pdes(t, state_derivs, gv):
         RDrag           = RDragX[:,6*(num_sections-1):6*num_sections]
         LRDrag          = LRDragX[:,6*(num_sections-1):6*num_sections]
 
+
         # Actuation and internal load
         Fan         = torch.tensor(([[Famx[0,jj], Famy[0,jj], Famz[0,jj], Fax[0,jj], Fay[0,jj], Faz[0,jj]]])).T.to(device)
         if t<= tact:                                      # tack
@@ -498,6 +498,8 @@ def piecewise_slow_pdes(t, state_derivs, gv):
                                             ))
         genCableForces  += Jaco_prev.T @ CableForces # this is F(q) in the generalized NE equation.
 
+        # assemble the core matrices decompositions
+
         # recursive factors
         prev_2_prev      = copy.copy(invAdjgn_last)
         for ii in range(1,jj):
@@ -534,135 +536,6 @@ def piecewise_slow_pdes(t, state_derivs, gv):
     'Buoyancy-Gravity Term: N Ad_{g_r}^{-1} \mathcal{G} where N = (1-rho_f/rho)* \int{J^T M Ad_g^{-1} dX}'
     buoyancyGravTerm = (1-gv.rho_fluid/gv.rho_arm) * (genGraV @ Adjoint_mat6x6(pinv(g_r)) @ Gra)
 
-    q_dot = Xcidot
-    if gv.controller:
-        q_tilde = Xci - gv.qd(t)
+    args = (genMasM, genCoriolis1, genCoriolis2, genDragForces, genCableForces, genGraV, genTorque, buoyancyGravTerm)
 
-        if strcmp(gv.controller.lower(), 'pd'): # no gravity compensation is default
-            'u = -K_p \tilde{q} - K_D \dot{q}'
-            u = -gv.Kp @ q_tilde - gv.Kd @ q_dot 
-            # if gv.feedforward: # compensate for feedforward gain # see pg 191 Murray and Sastry and Li
-            #     u += (genCoriolis1 + genCoriolis2)@q_dot 
-            'Eq. 28\'s rhs in paper  -- fluidic-driven. No Cable Forces. NB: q_ddot is really M \times q_ddot actually.'
-            Mq_ddot = (u  - (genCoriolis1 + genCoriolis2) @ q_dot)
-            
-            if gv.with_cable:
-                'u = -K_p \tilde{q} - K_D \dot{q} - F(q)'
-                u -= genCableForces  # u = -K_p \tilde{q} - K_D \dot{q} - F(q)
-                'Eq. 28\'s rhs in paper -- with cable forces'
-                Mq_ddot +=  genCableForces
-
-            'under water.' 
-            if gv.with_drag:                
-                Mq_ddot   -= (genDragForces @ q_dot)
-            
-            'Now account for gravity in u and q_ddot'
-            if gv.with_grav:
-                'Eqs. 36 & 40.'
-                'if we are running with gravity compensation'
-                if gv.with_drag: 
-                    'if water density applies::in case this is being called for the octopus robot under water'
-                    u -= buoyancyGravTerm
-                    Mq_ddot += buoyancyGravTerm
-                else:
-                    'terrestrial operation.'
-                    u -= (genGraV @ Adjoint_mat6x6(pinv(g_r)) @ Gra)
-                    Mq_ddot += (genGraV @ Adjoint_mat6x6(pinv(g_r)) @ Gra)
-                # Mq_ddot += buoyancyGravTerm
-
-            q_ddot = pinv(genMasM) @ Mq_ddot
-
-        elif strcmp(gv.controller.lower(), 'pid'): 
-            'u = -{K_p} \tilde{q} - K_D \dot{q} -  K_I \int_0^T{q_dot_tilde}'
-            q_tilde_np = q_tilde.cpu().numpy()
-            integ_term = torch.asarray(cumulative_trapezoid(q_tilde_np.flatten(), initial=0).reshape(-1,1)).to(device)
-            # print(integ_term.shape, q_tilde_np.shape, gv.Ki.shape)
-            u = -(gv.Kp ) @ q_tilde - gv.Kd @ q_dot  -  gv.Ki @ integ_term
-            'Eq. 27\'s rhs in paper  -- fluidic-driven. No Cable Forces. NB: q_ddot is really M \times q_ddot actually.'
-            Mq_ddot = (u  - (genCoriolis1 + genCoriolis2) @ q_dot)
-            
-            if gv.with_cable:
-                'u = -K_p \tilde{q} - K_D \dot{q} - F(q)'
-                u -= genCableForces  # u = -K_p \tilde{q} - K_D \dot{q} - F(q)
-                'Eq. 27\'s rhs in paper -- with cable forces'
-                Mq_ddot +=  genCableForces
-
-            'under water.' 
-            if gv.with_drag:                
-                Mq_ddot   -= (genDragForces @ q_dot)
-            
-            'Now account for gravity in u and q_ddot'
-            if gv.with_grav:
-                'Eqs. 34 & 38.'
-                Mq_ddot += buoyancyGravTerm
-                u -= buoyancyGravTerm  
-
-            q_ddot = pinv(genMasM) @ Mq_ddot
-
-        elif strcmp(gv.controller.lower(), 'spt'):  
-            e1 = Xci - gv.qd(t)
-            e2 = Xcidot - (gv.qd_dot(t) - e1)
-            'Equation 21 in SoRoSPT Paper'
-            tau = genMasM@(gv.qd_ddot(t)-2*e2 + e1) + (genCoriolis1+genCoriolis2)@(gv.qd(t)-e1) - gv.Kp@e1
-            if gv.with_drag:
-                'under water, fluid actuation, and no gravity compensation'
-                tau += genDragForces @ q_dot
-            if gv.with_cable:
-                'subtract cable forces at the midpoint of the cable per section'
-                tau -= genCableForces 
-            if gv.with_grav: 
-                'if we are running with gravity compensation'
-                if gv.with_drag: 
-                    'if water density applies::in case this is being called for the octopus robot under water'
-                    tau -= buoyancyGravTerm
-                else:
-                    'terrestrial operation.'
-                    tau -= (genGraV @ Adjoint_mat6x6(pinv(g_r)) @ Gra)
-            
-            'Implements eq. 8 in the SPT+backstepping paper'
-            q_ddot =  pinv(genMasM) @ (tau - (genCoriolis1-genCoriolis2 + genDragForces) @ Xcidot + genCableForces + buoyancyGravTerm) 
-        else:
-            raise NotImplementedError              
-    else:
-        'forward dynamics simulation.'
-        q_ddot    = pinv(genMasM) @ (genTorque + genGraV @ Adjoint_mat6x6(pinv(g_r)) @ Gra + genCableForces - (genCoriolis1 - genCoriolis2) @ q_dot)
-
-    z_point         = torch.vstack((q_dot, q_ddot))
-
-    'Stack up for saves'
-    gv.tsol = np.vstack((gv.tsol, [t.item()]))
-    gv.sol = torch.vstack((gv.sol, z_point.T))
-
-    # append these for the fist section's qd only since it is uniform through all sections
-    indices = torch.arange(6).to(device)  
-
-    gv.qd_save = torch.vstack((qd_save, torch.index_select(gv.qd(t), 0, indices)))
-    gv.qd_dot_save = torch.vstack((qd_dot_save, torch.index_select(gv.qd_dot(t), 0, indices)))
-
-    # if counter % 500 == 0:
-    #     toc = time.time()
-    #     np.savez_compressed(join(gv.data_dir, gv.fname), 
-    #                     solution=gv.sol.cpu().numpy(), 
-    #                     soltime=np.asarray(gv.tsol),
-    #                     runtime=toc-gv.tic, 
-    #                     with_drag=gv.with_drag, 
-    #                     with_cable=gv.with_cable,  
-    #                     gravity=gv.with_grav, 
-    #                     num_pieces=num_pieces,
-    #                     num_sections=num_sections,
-    #                     gain_prop=gv.gain_prop, 
-    #                     gain_deriv=gv.gain_deriv, 
-    #                     gain_integ=gv.gain_integ,  
-    #                     tip_load=gv.tip_load, 
-    #                     controller=gv.controller, 
-    #                     desired_strain=gv.desired_strain,
-    #                     qd=gv.qd_save.cpu().numpy(), 
-    #                     qd_dot=gv.qd_dot_save.cpu().numpy(),
-    #                     # qd_ddot=qd_ddot_save.cpu().numpy()
-    #                     )
-
-    if gv.verbose and counter%10==0: 
-        # print(gv.tsol.shape, gv.sol.shape)
-        print(f"Device: {device} | Num Steps: {counter} | t: {t:.4f} ||z_point||: {norm(z_point, ord='fro'):.8f}")
-
-    return (t, z_point)
+    return Dynamics(*args)

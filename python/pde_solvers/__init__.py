@@ -1,4 +1,3 @@
 from .cosserat_derivs import *
-from .slow_cosserat_derivs import * 
-from .fast_cosserat_derivs import * 
-from .local_rkf import runge_kutta_fehlberg
+from .dynamics import compute_fwd_dynamics 
+from .spt_cosserat_derivs import * 

@@ -68,7 +68,6 @@ def odeint(func, y0, t, *, rtol=1e-7, atol=1e-9, method=None, options=None, even
     Raises:
         ValueError: if an invalid `method` is provided.
     """
-
     shapes, func, y0, t, rtol, atol, method, options, event_fn, t_is_reversed = _check_inputs(func, y0, t, rtol, atol, method, options, event_fn, SOLVERS)
 
     solver = SOLVERS[method](func=func, y0=y0, rtol=rtol, atol=atol, **options)

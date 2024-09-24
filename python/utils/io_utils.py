@@ -1,4 +1,4 @@
-__all__ = ["load_file"]
+__all__ = ["load_file", "do_ordered_blkdiag", "separate_mass_mat", "ThreadReturnClass"]
 
 __author__      = "Lekan Molu"
 __maintainer__  = "Lekan Molu"
@@ -9,9 +9,88 @@ __email__       = "patlekno@icloud.com"
 __date__        = "December 23, 2022"
 __status__      = "Completed"
 
+import torch 
+from threading import Thread 
 import numpy as np
 from os.path import join 
 from utils import strcmp, Bundle 
+
+class ThreadReturnClass(Thread):
+    
+    def __init__(self, group=None, target=None, name=None,
+                 args=(), kwargs={}, Verbose=None):
+        Thread.__init__(self, group, target, name, args, kwargs)
+        self._return = None
+
+    def run(self):
+        if self._target is not None:
+            self._return = self._target(*self._args,
+                                                **self._kwargs)
+    def join(self, *args):
+        Thread.join(self, *args)
+        return self._return
+    
+def do_ordered_blkdiag(M: torch.tensor) -> torch.tensor:
+    """
+        Given a square matrix, M, compute the ordered eigen values, 
+        sort the eigenvectors based on the ordered eigen values (=P), 
+        and return the block diagonal similarity transformed matrix
+        by computing 
+
+        Mnew = P^{-1} * M * P
+    """
+
+    mvals, mvecs  = torch.linalg.eig(M)
+    vals_sort_idx = mvals.real.argsort().flip(dims=[0]) 
+    mvecs_sorted = mvecs[:, vals_sort_idx].squeeze().real
+
+    M = torch.inverse(mvecs_sorted).mul(M).mul(mvecs_sorted)
+
+    return M
+
+
+def separate_mass_mat(massmat: torch.Tensor, core_slice: slice, \
+                      pert_slice: slice, pert_uprt: tuple, pert_bot_left: tuple)->Bundle:
+    """
+        Separate the mass inertia tensor into a core and perturbation 
+        part based on supplied slice indices, core_slice.
+
+        Inputs: 
+            Massmat: Diagonalized massmat that sorts the mass of the sections in 
+            order from most weighty sections to least weighty section according to 
+            the eigenvalues of the mass matrix.
+
+            core_slice: A slice of the core mass matrix that allows us to index Mp
+            and Mc.
+
+            pert_slice: slices of the perturbed matrix == subblock of Mp
+
+            pert_uprt: indices for H_pert^core 
+
+            pert_bot_left: indices for H_core^pert
+
+        Returns:
+            A Bundle of Mc and Mp, Hcore, Hpert, H^core_pert and H^pert_core
+            based on equation (11) in the paper.
+    """
+    # Mc = torch.zeros_like(massmat); 
+    # massmat = do_ordered_blkdiag(massmat)
+
+    Mp = torch.zeros_like(massmat)
+    Mp_mask = torch.ones_like(massmat, dtype=bool); Mp_mask[core_slice, core_slice] = False 
+    Mc = massmat[core_slice, core_slice];   Mp[Mp_mask==True] = massmat[Mp_mask==True]
+    
+    hpert = Mp[pert_slice, pert_slice]
+    hcore = Mc[core_slice, core_slice]; 
+    hcore_pert = Mp[pert_uprt[0], pert_uprt[1]]
+    hpert_core = Mp[pert_bot_left[0], pert_bot_left[1]]
+    
+    
+    hmat = Bundle(dict(Mc = Mc, Mp=Mp, hcore=hcore, hpert=hpert, \
+                       hcore_pert=hcore_pert, hpert_core=hpert_core))
+    
+    return hmat
+
 
 def load_file(fname, data_dir="/opt/SoRoPD", verbose=True):
 
@@ -130,3 +209,19 @@ def joint_screws_to_confs(batch_screw):
             gsec_conf[t,:,:] = local_lie_group(batch_screw[t])
 
     return gsec_conf    
+
+def test_all():
+    a = torch.arange(1, 26).reshape(5, 5).float()
+    # print(a)
+    diaged = do_ordered_blkdiag(a)
+    print('Sorted Mass')
+    print(diaged)
+
+    hmat = separate_mass_mat(diaged, core_slice=slice(0, 3), pert_slice=slice(3, 5), 
+                                    pert_uprt=(slice(0, 3), slice(3, 5)), pert_bot_left=(slice(3, 5), slice(0, 3)))
+    print('Mc')
+    print(hmat.Mc); print('Mp'); print(hmat.Mp)
+
+    print('hcore:'); print(); print(hmat.hcore); print('hpert'); print(hmat.hpert)
+    print('hcp'); print(); print(hmat.hcore_pert)
+    print('hpc'); print(); print(hmat.hpert_core)    

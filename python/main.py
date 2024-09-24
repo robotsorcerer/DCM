@@ -12,9 +12,11 @@ __status__      = "Completed"
 import os
 import logging
 import time, sys
+import threading 
 import numpy as np
 from math import pi
 from datetime import datetime
+from torch.linalg import pinv, norm
 
 import torch
 torch.set_default_dtype(torch.float64)
@@ -45,10 +47,12 @@ flags.DEFINE_float('rtol', 1e-7, help="Relative tolerance for optimization/integ
 flags.DEFINE_float('atol', 1e-9, help="Absolute tolerance for optimization/integrator.")
 flags.DEFINE_float('desired_strain', 0.5, help="Desired strain noticeable along Z")
 flags.DEFINE_float('gain_prop', 4.5, help="Proportional gain for PD/PID controller")
-flags.DEFINE_float('backstep_prop', 4.3, help="Proportional gain for backstep controller")
+flags.DEFINE_float('backstep_p', 4.3, help="Kp gain for backstep controller")
+flags.DEFINE_float('backstep_d', 4.3, help="Kd gain for backstep controller")
 flags.DEFINE_float('gain_deriv', 5.5, help="Derivative gain for PD/PID controller")
 flags.DEFINE_float('gain_integ', 1.2, help="Integral gain for PID controller")
-flags.DEFINE_string('controller', "pd", help="'spt | PD | PID'")
+flags.DEFINE_float('perturb', 0.01, help="singularly perturbed parameter for fast time scale")
+flags.DEFINE_string('controller', "spt", help="'spt | PD | PID'")
 flags.DEFINE_string('reference', "setpoint", help="'setpoint or trajectory tracking?', 'setpoint | traktrack'")
 flags.DEFINE_string('integrator', default="fehlberg2", help="'felhberg2 | dopri8 | dopri5 | euler | midpoint | rk4'")
 
@@ -90,14 +94,8 @@ def main(argv):
 
     nsol        = int(FLAGS.t_time*10**3)             # t_time solution(s) every millisecond
     tspan       = torch.linspace(0,FLAGS.t_time,nsol).to(device)  # [s] time
-    # configuration and strain field
     g           = torch.zeros((4*nsol,4*num_sections*FLAGS.num_pieces)).to(device)
     eta         = torch.zeros((6*nsol,num_sections*FLAGS.num_pieces)).to(device)
-
-    g_slow      = torch.zeros((4*nsol,4*num_sections*FLAGS.num_slow_pieces)).to(device)
-    eta_slow    = torch.zeros((6*nsol,num_sections*FLAGS.num_slow_pieces)).to(device)
-    g_fast      = torch.zeros((4*nsol,4*num_sections*FLAGS.num_fast_pieces)).to(device)
-    eta_fast    = torch.zeros((6*nsol,num_sections*FLAGS.num_fast_pieces)).to(device)
 
     nstep       = 1
     tic         = time.time()
@@ -114,6 +112,8 @@ def main(argv):
     #=================== Update global options ============================================================#
     gv_others     = {"tspan": tspan, "nsol": nsol, "nstep": nstep, "g": g, "eta": eta, "tic": tic,
                      "data_dir": data_dir, "fname": fname, "sol": torch.zeros([1, 6*2*FLAGS.num_pieces]).to(device),
+                     "sol_slow": torch.zeros([1, 6*2*FLAGS.num_slow_pieces]).to(device), "save_dir": data_dir, 
+                     "sol_fast": torch.zeros([1, 6*2*FLAGS.num_fast_pieces]).to(device),
                      "controller": FLAGS.controller, "with_cable": FLAGS.with_cable, "desired_strain": FLAGS.desired_strain, 
                      "num_fast_pieces": FLAGS.num_fast_pieces, "num_pieces": FLAGS.num_pieces, "num_slow_pieces": FLAGS.num_slow_pieces,
                      "with_drag": FLAGS.with_drag, "verbose": FLAGS.verbose, "state_derivs": state_derivs, 
@@ -129,21 +129,21 @@ def main(argv):
     #     checkpoint_dfname = FLAGS.resume 
     #     bundled = load_file(checkpoint_dfname)
     #     last_time, last_sol = bundled.tsol, bundled.sol 
-        
+    gv.qd         = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]]).T.to(t.device), (FLAGS.num_pieces, 1))
+    gv.qd_dot     = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]]).T.to(t.device), (FLAGS.num_pieces, 1))
+    gv.qd_ddot    = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]]).T.to(t.device), (FLAGS.num_pieces, 1)) 
+
+    gv.qd_slow = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]]).T.to(t.device), (FLAGS.num_slow_pieces, 1))
+    gv.qd_dot_slow = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]]).T.to(t.device), (FLAGS.num_slow_pieces, 1))
+    gv.qd_ddot_slow = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]]).T.to(t.device), (FLAGS.num_slow_pieces, 1))
+
+    gv.qd_fast = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]]).T.to(t.device), (FLAGS.num_fast_pieces, 1))
+    gv.qd_dot_fast = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]]).T.to(t.device), (FLAGS.num_fast_pieces, 1))
+    gv.qd_ddot_fast = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]]).T.to(t.device), (FLAGS.num_fast_pieces, 1))
+            
     if FLAGS.controller: 
         # assume setpoint by default 
-        # track unit linear and angular strains that is constant in the +y direction in addition to a varying tip load
-        gv.qd         = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]]).T.to(t.device), (FLAGS.num_pieces, 1))
-        gv.qd_dot     = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]]).T.to(t.device), (FLAGS.num_pieces, 1))
-        gv.qd_ddot    = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]]).T.to(t.device), (FLAGS.num_pieces, 1)) 
-        
-        gv.qd_slow         = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]]).T.to(t.device), (FLAGS.num_slow_pieces, 1))
-        gv.qd_dot_slow     = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]]).T.to(t.device), (FLAGS.num_slow_pieces, 1))
-        gv.qd_ddot_slow    = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]]).T.to(t.device), (FLAGS.num_slow_pieces, 1)) 
-        
-        gv.qd_fast         = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]]).T.to(t.device), (FLAGS.num_fast_pieces, 1))
-        gv.qd_dot_fast     = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]]).T.to(t.device), (FLAGS.num_fast_pieces, 1))
-        gv.qd_ddot_fast    = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]]).T.to(t.device), (FLAGS.num_fast_pieces, 1)) 
+        # track unit linear and angular strains that is constant in the +y direction in addition to a varying tip load        
         if strcmp(FLAGS.reference.lower(), 'trajtrack'):
             from math import sin, cos
             # track linear and angular strains that is sinusoidal in the +y direction in addition to a varying tip load throughout the soft material body
@@ -154,11 +154,10 @@ def main(argv):
             gv.qd_slow = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1,  sin(FLAGS.desired_strain*10*t), 0]]).T.to(t.device), (FLAGS.num_slow_pieces, 1))
             gv.qd_dot_slow = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, 10*cos(FLAGS.desired_strain*10*t), 0]]).T.to(t.device), (FLAGS.num_slow_pieces, 1))
             gv.qd_ddot_slow = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, -100*sin(FLAGS.desired_strain*10*t),0]]).T.to(t.device), (FLAGS.num_slow_pieces, 1))
-            
+
             gv.qd_fast = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1,  sin(FLAGS.desired_strain*10*t), 0]]).T.to(t.device), (FLAGS.num_fast_pieces, 1))
             gv.qd_dot_fast = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, 10*cos(FLAGS.desired_strain*10*t), 0]]).T.to(t.device), (FLAGS.num_fast_pieces, 1))
             gv.qd_ddot_fast = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, -100*sin(FLAGS.desired_strain*10*t),0]]).T.to(t.device), (FLAGS.num_fast_pieces, 1))
-
         # specify the controller gains if PD or PID
         if strcmp(FLAGS.controller.lower(), 'pd') or strcmp(FLAGS.controller.lower(), 'pid'):
             gv.Kp    = FLAGS.gain_prop*torch.eye(6*FLAGS.num_pieces).to(state_derivs.device)
@@ -166,30 +165,41 @@ def main(argv):
             gv.Ki    = FLAGS.gain_integ*torch.eye(6*FLAGS.num_pieces).to(state_derivs.device)
             
         elif strcmp(FLAGS.controller.lower(), "spt"):
-            gv.Kp_slow    = FLAGS.backstep_prop*torch.eye(6*FLAGS.num_slow_pieces).to(slow_state_derivs.device)
-            gv.Kp_fast    = FLAGS.backstep_prop*torch.eye(6*FLAGS.num_fast_pieces).to(fast_state_derivs.device)
-        
-        slow_cl_derivs = lambda t, state_derivs: piecewise_slow_pdes(t, state_derivs, gv)
-        fast_cl_derivs = lambda t, state_derivs: piecewise_fast_pdes(t, state_derivs, gv)
+            gv.num_fast_pieces = FLAGS.num_fast_pieces
+            gv.num_slow_pieces = FLAGS.num_slow_pieces
+            gv.perturb = FLAGS.perturb 
 
-        sol_slow = odeint(slow_cl_derivs, slow_state_derivs, tspan, method=FLAGS.integrator,rtol=FLAGS.rtol, atol=FLAGS.atol)
-        sol_fast = odeint(fast_cl_derivs, slow_state_derivs, tspan, method=FLAGS.integrator,rtol=FLAGS.rtol, atol=FLAGS.atol)
+            gv.Kp    = FLAGS.backstep_p*torch.eye(6*FLAGS.num_fast_pieces).to(state_derivs.device)
+            gv.Kq    = FLAGS.backstep_d*torch.eye(6*FLAGS.num_fast_pieces).to(state_derivs.device)        
+
+            slow_cl_derivs = lambda t, state_derivs: piecewise_slow_pdes(t, state_derivs, gv)
+            fast_cl_derivs = lambda t, state_derivs: piecewise_fast_pdes(t/FLAGS.perturb, state_derivs, gv)
+                        
+
+            sol_slow = odeint(slow_cl_derivs, slow_state_derivs, tspan, method=FLAGS.integrator,rtol=FLAGS.rtol, atol=FLAGS.atol)
+            time.sleep(4) # wait to dump first z_pert_prime before running fast loop
+
+            
+            fast_thread = threading.Thread( target=lambda: odeint(fast_cl_derivs, fast_state_derivs, tspan, method=FLAGS.integrator,rtol=FLAGS.rtol, atol=FLAGS.atol) )
+            fast_thread.daemon = True
+            fast_thread.start()
+            # sol_fast = odeint(fast_cl_derivs, fast_state_derivs, tspan, method=FLAGS.integrator,rtol=FLAGS.rtol, atol=FLAGS.atol)
     else:          
-        # fwd_dynamics = lambda t: piecewise_slow_pdes(t, state_derivs, gv)
-        slow_sol = odeint(piecewise_slow_pdes, slow_state_derivs, tspan, method=FLAGS.integrator)
-        fast_sol = odeint(piecewise_fast_pdes, fast_state_derivs, tspan, method=FLAGS.integrator)
+        raise ValueError("Unknown simulation type.")
         
+    sol_fast = fast_thread.join()
     if FLAGS.verbose:
-        logger.info(f"slow dynamics solution for cur session: {slow_sol}")
-        logger.info(f"fast dynamics solution for cur session: {fast_sol}")
+        logger.info(f"slow dynamics solution for cur session: {sol_slow.shape}")
+        logger.info(f"fast dynamics solution for cur session:  {sol_fast}")
 
     toc =  time.time()
     print(f"Post-processing:  {(toc-tic):.4f} secs or {((toc-tic)/60):.4f} minutes")
     print("\n\n=======Starting New Session\n\n")
+
     toc = time.time()
     np.savez_compressed(join(gv.data_dir, gv.fname.split(".npz")[0]+"_final.npz"), 
-                    slow_solution=slow_sol.cpu().numpy(), 
-                    fast_solution=fast_sol.cpu().numpy(), 
+                    slow_solution=sol_slow.cpu().numpy(), 
+                    # fast_solution=sol_fast.cpu().numpy(), 
                     soltime=gv.tsol,
                     runtime=toc-tic, 
                     with_drag=FLAGS.with_drag, 
