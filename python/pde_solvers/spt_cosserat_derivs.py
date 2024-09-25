@@ -190,7 +190,7 @@ def piecewise_fast_pdes(t, state_derivs, gv):
     force_buoyance_combo = genCableForces + buoyancyGravTerm 
     # read dynamics at time t from HDD 
     obj_load = torch.load(join(gv.save_dir, 'slow_dyna_dump.pt'))
-    z_pert_dot = obj_load['z_pert_dot']
+    z_pert_dot = obj_load['z_pert_dot'].to(device)
     z_pert_prime = gv.perturb * z_pert_dot
 
     # force_buoyance_combo = obj_load['force_buoyance_combo']

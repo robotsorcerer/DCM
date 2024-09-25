@@ -130,8 +130,9 @@ def main(argv):
     #     checkpoint_dfname = FLAGS.resume 
     #     bundled = load_file(checkpoint_dfname)
     #     last_time, last_sol = bundled.tsol, bundled.sol 
-    qd            = torch.tensor([[0, 1.57, 0, 1, FLAGS.desired_strain, 0]])
-    qd_dot        = torch.tensor([[0, 1.57, 0, 1, 4, 0]]); qd_ddot        = torch.tensor([[0, 0, 0, 1, 2, 0]])
+    qd            = torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]])
+    qd_dot        = torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]]); 
+    qd_ddot        = torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]])
 
     # gv.qd         = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1,  0, 0]]).T.to(t.device), (FLAGS.num_pieces, 1))
     # gv.qd_dot     = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1,  0, 0]]).T.to(t.device), (FLAGS.num_pieces, 1))
@@ -186,26 +187,27 @@ def main(argv):
 
             slow_cl_derivs = lambda t, state_derivs: piecewise_slow_pdes(t, state_derivs.cpu(), gv)
             # time.sleep(4) # wait to dump first z_pert_prime before running fast loop
-            gv.Kp    = gv.Kp.to(state_derivs.device)
-            gv.Kq    = gv.Kq.to(state_derivs.device)    
+            gv.Kp    = gv.Kp.to(tspan.device)
+            gv.Kq    = gv.Kq.to(tspan.device)    
             fast_cl_derivs = lambda t, state_derivs: piecewise_fast_pdes(t/FLAGS.perturb, state_derivs, gv)
 
             tslow = tspan.cpu()            
             sol_slow = odeint(slow_cl_derivs, slow_state_derivs, tslow, method=FLAGS.integrator,rtol=FLAGS.rtol, atol=FLAGS.atol)
-            # fast_thread = threading.Thread( target=lambda: odeint(fast_cl_derivs, fast_state_derivs, tspan, method=FLAGS.integrator,rtol=FLAGS.rtol, atol=FLAGS.atol) )
-            # fast_thread.daemon = True
+            # slow_thread = threading.Thread( target=lambda: odeint(slow_cl_derivs, slow_state_derivs, tslow, method=FLAGS.integrator,rtol=FLAGS.rtol, atol=FLAGS.atol) )
+            # slow_thread.daemon = True
+            # slow_thread.start()
+            # fast_thread = mp.Process(target=lambda: odeint(fast_cl_derivs, fast_state_derivs, tspan, method=FLAGS.integrator,rtol=FLAGS.rtol, atol=FLAGS.atol) )
             # fast_thread.start()
-            fast_thread = mp.Process(target=lambda: odeint(fast_cl_derivs, fast_state_derivs, tspan, method=FLAGS.integrator,rtol=FLAGS.rtol, atol=FLAGS.atol) )
-            fast_thread.start()
-            sol_fast = fast_thread.join()
-            # sol_fast = odeint(fast_cl_derivs, fast_state_derivs, tspan, method=FLAGS.integrator,rtol=FLAGS.rtol, atol=FLAGS.atol)
+            # sol_fast = fast_thread.join()
+            sol_fast = odeint(fast_cl_derivs, fast_state_derivs, tspan, method=FLAGS.integrator,rtol=FLAGS.rtol, atol=FLAGS.atol)
     else:          
         raise ValueError("Unknown simulation type.")
         
     # sol_fast = fast_thread.join()
     if FLAGS.verbose:
         logger.info(f"slow dynamics solution for cur session: {sol_slow.shape}")
-        logger.info(f"fast dynamics solution for cur session:  {fast_thread.join()}")
+        logger.info(f"fast dynamics solution for cur session: {sol_fast.shape}")
+        # logger.info(f"fast dynamics solution for cur session:  {fast_thread.join()}")
 
     toc =  time.time()
     fname_final = join(gv.data_dir, gv.fname.split(".npz")[0]+"_final.npz")
@@ -215,9 +217,9 @@ def main(argv):
     toc = time.time()
     np.savez_compressed(fname_final, 
                     fname = gv.fname.split(".npz")[0]+"_final.npz",
-                    # solution=(sol_slow.cpu().numpy(), sol_fast.cpu().numpy()),
+                    solution=(sol_slow.cpu().numpy(), sol_fast.cpu().numpy()),
                     slow_solution=sol_slow.cpu().numpy(), 
-                    # fast_solution=sol_fast.cpu().numpy(), 
+                    fast_solution=sol_fast.cpu().numpy(), 
                     soltime=gv.tsol,
                     runtime=toc-tic, 
                     with_drag=FLAGS.with_drag, 
