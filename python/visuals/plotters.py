@@ -7,7 +7,7 @@ from os.path import join, expanduser
 from utils import strcmp, Bundle, isnumeric
 import matplotlib.pyplot as plt 
 import matplotlib as mpl 
-mpl.use("QtAgg")
+# mpl.use("QtAgg")
 
 # avoid Type 3 fonts for paperplaza submissions ===> See http://phyletica.org/matplotlib-fonts/
 mpl.rcParams['pdf.fonttype'] = 42

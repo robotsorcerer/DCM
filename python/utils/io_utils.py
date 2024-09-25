@@ -13,7 +13,7 @@ import torch
 from threading import Thread 
 import numpy as np
 from os.path import join 
-from utils import strcmp, Bundle 
+from utils import strcmp, Bundle, isfield
 
 class ThreadReturnClass(Thread):
     
@@ -94,49 +94,63 @@ def separate_mass_mat(massmat: torch.Tensor, core_slice: slice, \
 
 def load_file(fname, data_dir="/opt/SoRoPD", verbose=True):
 
-    first_trained   = np.load(join(data_dir, fname))
-    controller      = first_trained["controller"]
-    runtime         = first_trained['runtime']
-    drag            = first_trained['with_drag']
-    cable           = first_trained["with_cable"]
-    num_pieces      = first_trained["num_pieces"]
-    Kp              = first_trained["gain_prop"]
-    Kd              = first_trained["gain_deriv"]
-    Ki              = first_trained["gain_integ"] if "gain_integ" in first_trained.keys() else None 
-    gravity         = first_trained["gravity"] if "gravity" in first_trained.keys() else None 
-    num_sections    = first_trained["num_sections"]
-    tip_load        = first_trained["tip_load"]
-    solution        = first_trained["solution"]
-    qd              =  first_trained['desired_strain'] if 'desired_strain' in first_trained.keys() else None 
-    soltime         =  first_trained['soltime'] if 'soltime' in first_trained.keys() else None 
+    bundle   = Bundle(np.load(join(data_dir, fname)))
+    # if verbose:
+    #     print(f"fname: {fname}, strain_goal(q^d): {qd}")
+    #     print(f"num_pieces: {num_pieces} num_sections: {num_sections}, drag: {drag}, cable: {cable}")
+    #     print(f"runtime: {runtime/60:.4f} mins or  {runtime/3600:.4f} hours.")
+    #     if strcmp(controller, 'PD'):        
+    #         print(f"controller: {controller} | Kp: {Kp} | Kd: {Kd} | tip_load: {tip_load}")
+    #     elif strcmp(controller, 'PID'):
+    #         print(f"controller: {controller} | Kp: {Kp} | Kd: {Kd} | Ki: {Ki} | tip_load: {tip_load}")
+    #     elif strcmp(controller, 'Backstep'):
+    #         print(f"controller: {controller} | Kp: {Kp} | tip_load: {tip_load}")
 
-    if verbose:
-        print(f"fname: {fname}, strain_goal(q^d): {qd}")
-        print(f"num_pieces: {num_pieces} num_sections: {num_sections}, drag: {drag}, cable: {cable}")
-        print(f"runtime: {runtime/60:.4f} mins or  {runtime/3600:.4f} hours.")
-        if strcmp(controller, 'PD'):        
-            print(f"controller: {controller} | Kp: {Kp} | Kd: {Kd} | tip_load: {tip_load}")
-        elif strcmp(controller, 'PID'):
-            print(f"controller: {controller} | Kp: {Kp} | Kd: {Kd} | Ki: {Ki} | tip_load: {tip_load}")
-        elif strcmp(controller, 'Backstep'):
-            print(f"controller: {controller} | Kp: {Kp} | tip_load: {tip_load}")
+    # solution = bundle.solution 
+    if isfield(bundle, 'solution'): # and len(solution) == 1: # non-spt
+        solution = bundle.solution
+        qslc = slice(0, bundle.num_pieces*6, 1); qdotslc = slice(bundle.num_pieces*6, 2*bundle.num_pieces*6, 1)
+        if len(solution.shape)<3:
+            qbatch  = solution[:, qslc]; qdbatch = solution[:, qdotslc]
+        else:
+            qbatch  = solution[:, qslc, 0]; qdbatch = solution[:, qdotslc, 0]
 
-    qslc = slice(0, num_pieces*6, 1); qdotslc = slice(num_pieces*6, 2*num_pieces*6, 1)
-    if len(solution.shape)<3:
-        qbatch  = solution[:, qslc]; qdbatch = solution[:, qdotslc]
-    else:
-        qbatch  = solution[:, qslc, 0]; qdbatch = solution[:, qdotslc, 0]
+        sec_slices  = [(idx, slice(i, i+6, 1)) for (idx, i) in enumerate(range(0, bundle.num_pieces*6, 6))]
+        qsecs       = {f"qsec{sec_slice[0]+1}": qbatch[:, sec_slice[1]] for sec_slice in sec_slices}
+        qdsecs      = {f"qdsec{sec_slice[0]+1}": qdbatch[:, sec_slice[1]] for sec_slice in sec_slices}
+        others      = dict(qbatch=qbatch, qdbatch=qdbatch)
+        qsecs.update(qdsecs)
+        qsecs.update(others) 
+    else: # fast and slow solutions 
+        sol_slow = bundle.slow_solution; sol_fast = bundle.fast_solution
+        qslc_slow = slice(0, bundle.num_slow_pieces*6, 1); qdotslc_slow = slice(bundle.num_slow_pieces*6, 2*bundle.num_slow_pieces*6, 1)
+        qslc_fast = slice(0, bundle.num_fast_pieces*6, 1); qdotslc_fast = slice(bundle.num_fast_pieces*6, 2*bundle.num_fast_pieces*6, 1)
 
-    sec_slices  = [(idx, slice(i, i+6, 1)) for (idx, i) in enumerate(range(0, num_pieces*6, 6))]
-    qsecs       = {f"qsec{sec_slice[0]+1}": qbatch[:, sec_slice[1]] for sec_slice in sec_slices}
-    qdsecs      = {f"qdsec{sec_slice[0]+1}": qdbatch[:, sec_slice[1]] for sec_slice in sec_slices}
-    others      = dict(qbatch=qbatch, qdbatch=qdbatch, Kp=Kp, Kd=Kd, Ki=Ki, pieces=num_pieces, \
-                    cable=cable, drag=drag, controller=controller, sections=num_sections, qd=qd, \
-                    tip_load=tip_load, runtime=runtime, gravity=gravity, fname=fname, tsol=soltime)
-    qsecs.update(qdsecs)
-    qsecs.update(others)    
+        if len(sol_slow.shape)<3:
+            qbatch_slow  = sol_slow[:, qslc_slow]; qdbatch_slow = sol_slow[:, qdotslc_slow]
+            qbatch_fast  = sol_fast[:, qslc_fast]; qbatch_fast  = sol_fast[:, qdotslc_fast]
+        else:
+            qbatch_slow  = sol_slow[:, qslc_slow, 0]; qdbatch_slow = sol_slow[:, qdotslc_slow, 0]
+            qbatch_fast  = sol_fast[:, qslc_fast, 0]; qdbatch_fast = sol_fast[:, qdotslc_fast, 0]
 
-    return Bundle(qsecs)
+        sec_slow_slice   = [(idx, slice(i, i+6, 1)) for (idx, i) in enumerate(range(0, bundle.num_slow_pieces*6, 6))]
+        sec_fast_slice   = [(idx, slice(i, i+6, 1)) for (idx, i) in enumerate(range(0, bundle.num_fast_pieces*6, 6))]
+
+        qsecs = {}
+
+        qsecs_slow       = {f"qsec_slow{sec_slow_slice[0]+1}": qbatch_slow[:, sec_slow_slice[1]] for sec_slow_slice in sec_slow_slice}
+        qsecs_fast       = {f"qsec_fast{sec_fast_slice[0]+1}": qbatch_fast[:, sec_fast_slice[1]] for sec_fast_slice in sec_fast_slice}
+
+        qdsecs_slow      = {f"qdsec_slow{sec_slow_slice[0]+1}": qdbatch_slow[:, sec_slow_slice[1]] for sec_slow_slice in sec_slow_slice}
+        qdsecs_fast      = {f"qdsec_fast{sec_fast_slice[0]+1}": qdbatch_fast[:, sec_fast_slice[1]] for sec_fast_slice in sec_fast_slice}
+
+        others           = dict(qbatch_slow=qbatch_slow, qdbatch_slow=qdbatch_slow, 
+                                qbatch_fast=qbatch_fast, qdbatch_fast=qdbatch_fast)
+        
+        qsecs.update(qsecs_slow); qsecs.update(qsecs_fast); qsecs.update(qdsecs_slow); qsecs.update(qdsecs_fast); qsecs.update(others);   
+        bundle.qsecs = Bundle(qsecs)
+
+    return bundle 
 
 def joint_screws_to_confs(batch_screw):
     """

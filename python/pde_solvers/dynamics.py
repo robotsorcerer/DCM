@@ -25,85 +25,154 @@ torch.set_default_dtype(torch.float64)
 Dynamics = namedtuple('Dynamics', ('M', 'C1', 'C2', 'D', 'F', 'G', 'T', 'Nterm'))
 
 # preallocations 
-device = 'cuda:0'
+# device = 'cuda:0'
 
-"Mass matrix for the current configuration, parameterized by X"
-MasX            = torch.zeros((6,6*num_sections)).to(device)
-LMasX           = torch.zeros((6,6*num_sections)).to(device)
-RMasX           = torch.zeros((6,6*num_sections)).to(device)
-LRMasX          = torch.zeros((6,6*num_sections)).to(device)
+# "Mass matrix for the current configuration, parameterized by X"
+# MasX            = torch.zeros((6,6*num_sections)).to(device)
+# LMasX           = torch.zeros((6,6*num_sections)).to(device)
+# RMasX           = torch.zeros((6,6*num_sections)).to(device)
+# LRMasX          = torch.zeros((6,6*num_sections)).to(device)
 
-"Coriolis forces 1"
-Co1X            = torch.zeros((6,6*num_sections)).to(device)
-LCo1X           = torch.zeros((6,6*num_sections)).to(device)
-RCo1X           = torch.zeros((6,6*num_sections)).to(device)
-LRCo1X          = torch.zeros((6,6*num_sections)).to(device)
+# "Coriolis forces 1"
+# Co1X            = torch.zeros((6,6*num_sections)).to(device)
+# LCo1X           = torch.zeros((6,6*num_sections)).to(device)
+# RCo1X           = torch.zeros((6,6*num_sections)).to(device)
+# LRCo1X          = torch.zeros((6,6*num_sections)).to(device)
 
-"Coriolis forces 2"
-Co2X            = torch.zeros((6,6*num_sections)).to(device)
-LCo2X           = torch.zeros((6,6*num_sections)).to(device)
+# "Coriolis forces 2"
+# Co2X            = torch.zeros((6,6*num_sections)).to(device)
+# LCo2X           = torch.zeros((6,6*num_sections)).to(device)
 
-"Drag forces"
-DragX           = torch.zeros((6,6*num_sections)).to(device)  
-LDragX          = torch.zeros((6,6*num_sections)).to(device)  
-RDragX          = torch.zeros((6,6*num_sections)).to(device)  
-LRDragX         = torch.zeros((6,6*num_sections)).to(device)  
+# "Drag forces"
+# DragX           = torch.zeros((6,6*num_sections)).to(device)  
+# LDragX          = torch.zeros((6,6*num_sections)).to(device)  
+# RDragX          = torch.zeros((6,6*num_sections)).to(device)  
+# LRDragX         = torch.zeros((6,6*num_sections)).to(device)  
 
-Mas_prev        = torch.zeros((6,6)).to(device)
-LMas_prev       = torch.zeros((6,6)).to(device)
-RMas_prev       = torch.zeros((6,6)).to(device)
-LRMas_prev      = torch.zeros((6,6)).to(device)
+# Mas_prev        = torch.zeros((6,6)).to(device)
+# LMas_prev       = torch.zeros((6,6)).to(device)
+# RMas_prev       = torch.zeros((6,6)).to(device)
+# LRMas_prev      = torch.zeros((6,6)).to(device)
 
-Co1_prev        = torch.zeros((6,6)).to(device)
-LCo1_prev       = torch.zeros((6,6)).to(device)
-RCo1_prev       = torch.zeros((6,6)).to(device)
-LRCo1_prev      = torch.zeros((6,6)).to(device)
+# Co1_prev        = torch.zeros((6,6)).to(device)
+# LCo1_prev       = torch.zeros((6,6)).to(device)
+# RCo1_prev       = torch.zeros((6,6)).to(device)
+# LRCo1_prev      = torch.zeros((6,6)).to(device)
 
-Co2_prev        = torch.zeros((6,6)).to(device)
-LCo2_prev       = torch.zeros((6,6)).to(device)
+# Co2_prev        = torch.zeros((6,6)).to(device)
+# LCo2_prev       = torch.zeros((6,6)).to(device)
 
-Drag_prev       = torch.zeros((6,6)).to(device)  
-LDrag_prev      = torch.zeros((6,6)).to(device)  
-RDrag_prev      = torch.zeros((6,6)).to(device)  
-LRDrag_prev     = torch.zeros((6,6)).to(device)  
+# Drag_prev       = torch.zeros((6,6)).to(device)  
+# LDrag_prev      = torch.zeros((6,6)).to(device)  
+# RDrag_prev      = torch.zeros((6,6)).to(device)  
+# LRDrag_prev     = torch.zeros((6,6)).to(device)  
 
-num_sections    = gv["num_sections"] 
-# num_pieces      = gv["num_pieces"] 
+# num_sections    = gv["num_sections"] 
 
-# sectional matrices per discretization in each piece
-MasX             = torch.zeros((6,6*num_sections)).to(device)
-LMasX            = torch.zeros((6,6*num_sections)).to(device)
-LRMasX           = torch.zeros((6,6*num_sections)).to(device)
+# # sectional matrices per discretization in each piece
+# MasX             = torch.zeros((6,6*num_sections)).to(device)
+# LMasX            = torch.zeros((6,6*num_sections)).to(device)
+# LRMasX           = torch.zeros((6,6*num_sections)).to(device)
 
-DragX            = torch.zeros((6, 6*num_sections)).to(device)
-LDragX            = torch.zeros((6, 6*num_sections)).to(device)
-LRDragX          = torch.zeros((6,6*num_sections)).to(device)  
+# DragX            = torch.zeros((6, 6*num_sections)).to(device)
+# LDragX            = torch.zeros((6, 6*num_sections)).to(device)
+# LRDragX          = torch.zeros((6,6*num_sections)).to(device)  
 
-LRCo1X           = torch.zeros((6,6*num_sections)).to(device)
+# LRCo1X           = torch.zeros((6,6*num_sections)).to(device)
 
-Mas_prev         = torch.zeros((6,6)).to(device)
-LMas_prev        = torch.zeros((6,6)).to(device)
-LRMas_prev       = torch.zeros((6,6)).to(device)
+# Mas_prev         = torch.zeros((6,6)).to(device)
+# LMas_prev        = torch.zeros((6,6)).to(device)
+# LRMas_prev       = torch.zeros((6,6)).to(device)
     
-Drag_prev        = torch.zeros((6,6)).to(device)  
-LDrag_prev       = torch.zeros((6,6)).to(device)  
-LRDrag_prev      = torch.zeros((6,6)).to(device)  
+# Drag_prev        = torch.zeros((6,6)).to(device)  
+# LDrag_prev       = torch.zeros((6,6)).to(device)  
+# LRDrag_prev      = torch.zeros((6,6)).to(device)  
 
-LRCo1_prev       = torch.zeros((6,6)).to(device)
+# LRCo1_prev       = torch.zeros((6,6)).to(device)
 
-# Initialize previous kinematics
-g_r              = torch.tensor([[0.0, -1.0, 0.0, 0.0],
-                            [1.0, 0.0, 0.0, 0.0],
-                            [0.0, 0.0, 1.0, 0.0],
-                            [0.0, 0.0, 0.0, 1.0]]).to(device)     # cantilever
-g_prev           = torch.asarray(torch.diagflat((torch.ones((4)).to(device))))
-eta_prev         = torch.zeros((6)).to(device)
+# # Initialize previous kinematics
+# g_r              = torch.tensor([[0.0, -1.0, 0.0, 0.0],
+#                             [1.0, 0.0, 0.0, 0.0],
+#                             [0.0, 0.0, 1.0, 0.0],
+#                             [0.0, 0.0, 0.0, 1.0]]).to(device)     # cantilever
+# g_prev           = torch.asarray(torch.diagflat((torch.ones((4)).to(device))))
+# eta_prev         = torch.zeros((6)).to(device)
 
 def compute_fwd_dynamics(t, state_derivs, gv):
     """
         Returns the whole robot dynamics at time t
     """   
     device      = state_derivs.device
+    num_sections    = gv.num_sections
+
+    MasX            = torch.zeros((6,6*num_sections)).to(device)
+    LMasX           = torch.zeros((6,6*num_sections)).to(device)
+    RMasX           = torch.zeros((6,6*num_sections)).to(device)
+    LRMasX          = torch.zeros((6,6*num_sections)).to(device)
+
+    "Coriolis forces 1"
+    Co1X            = torch.zeros((6,6*num_sections)).to(device)
+    LCo1X           = torch.zeros((6,6*num_sections)).to(device)
+    RCo1X           = torch.zeros((6,6*num_sections)).to(device)
+    LRCo1X          = torch.zeros((6,6*num_sections)).to(device)
+
+    "Coriolis forces 2"
+    Co2X            = torch.zeros((6,6*num_sections)).to(device)
+    LCo2X           = torch.zeros((6,6*num_sections)).to(device)
+
+    "Drag forces"
+    DragX           = torch.zeros((6,6*num_sections)).to(device)  
+    LDragX          = torch.zeros((6,6*num_sections)).to(device)  
+    RDragX          = torch.zeros((6,6*num_sections)).to(device)  
+    LRDragX         = torch.zeros((6,6*num_sections)).to(device)  
+
+    Mas_prev        = torch.zeros((6,6)).to(device)
+    LMas_prev       = torch.zeros((6,6)).to(device)
+    RMas_prev       = torch.zeros((6,6)).to(device)
+    LRMas_prev      = torch.zeros((6,6)).to(device)
+
+    Co1_prev        = torch.zeros((6,6)).to(device)
+    LCo1_prev       = torch.zeros((6,6)).to(device)
+    RCo1_prev       = torch.zeros((6,6)).to(device)
+    LRCo1_prev      = torch.zeros((6,6)).to(device)
+
+    Co2_prev        = torch.zeros((6,6)).to(device)
+    LCo2_prev       = torch.zeros((6,6)).to(device)
+
+    Drag_prev       = torch.zeros((6,6)).to(device)  
+    LDrag_prev      = torch.zeros((6,6)).to(device)  
+    RDrag_prev      = torch.zeros((6,6)).to(device)  
+    LRDrag_prev     = torch.zeros((6,6)).to(device)  
+
+    # sectional matrices per discretization in each piece
+    MasX             = torch.zeros((6,6*num_sections)).to(device)
+    LMasX            = torch.zeros((6,6*num_sections)).to(device)
+    LRMasX           = torch.zeros((6,6*num_sections)).to(device)
+
+    DragX            = torch.zeros((6, 6*num_sections)).to(device)
+    LDragX            = torch.zeros((6, 6*num_sections)).to(device)
+    LRDragX          = torch.zeros((6,6*num_sections)).to(device)  
+
+    LRCo1X           = torch.zeros((6,6*num_sections)).to(device)
+
+    Mas_prev         = torch.zeros((6,6)).to(device)
+    LMas_prev        = torch.zeros((6,6)).to(device)
+    LRMas_prev       = torch.zeros((6,6)).to(device)
+        
+    Drag_prev        = torch.zeros((6,6)).to(device)  
+    LDrag_prev       = torch.zeros((6,6)).to(device)  
+    LRDrag_prev      = torch.zeros((6,6)).to(device)  
+
+    LRCo1_prev       = torch.zeros((6,6)).to(device)
+
+    # Initialize previous kinematics
+    g_r              = torch.tensor([[0.0, -1.0, 0.0, 0.0],
+                                [1.0, 0.0, 0.0, 0.0],
+                                [0.0, 0.0, 1.0, 0.0],
+                                [0.0, 0.0, 0.0, 1.0]]).to(device)     # cantilever
+    g_prev           = torch.asarray(torch.diagflat((torch.ones((4)).to(device))))
+    eta_prev         = torch.zeros((6)).to(device)
+
     num_pieces  = gv.num_pieces 
 
     Jaco_prev   = torch.diagflat(torch.cat((
@@ -123,18 +192,18 @@ def compute_fwd_dynamics(t, state_derivs, gv):
     adetan_prev      = torch.zeros((6*num_pieces,6*num_pieces)).to(device)
 
     L           =   gv.L
-    Eps         =   gv.Eps
-    Upsilon     =   gv.Upsilon
-    M           =   gv.M
+    Eps         =   gv.Eps.to(device)
+    Upsilon     =   gv.Upsilon.to(device)
+    M           =   gv.M.to(device)
 
-    xci_star    =   gv.xci_star
-    Gra         =   gv.Gra
+    xci_star    =   gv.xci_star.to(device)
+    Gra         =   gv.Gra.to(device)
     dX          =   gv.dX
-    X           =   gv.X
+    X           =   gv.X.to(device)
     num_sections=   gv.num_sections   # sections in each piece
     num_pieces  =   gv.num_pieces
-    tact        =   gv.tact
-    trel        =   gv.trel
+    tact        =   gv.tact.to(device)
+    trel        =   gv.trel.to(device)
     Fax         =   gv.Fax(num_pieces)
     Fay         =   gv.Fay(num_pieces)
     Faz         =   gv.Faz(num_pieces)
@@ -147,7 +216,7 @@ def compute_fwd_dynamics(t, state_derivs, gv):
     Fpmx        =   gv.Fpmx(num_pieces)
     Fpmy        =   gv.Fpmy(num_pieces)
     Fpmz        =   gv.Fpmz(num_pieces)
-    D           =   gv.Drag if isfield(gv, "Drag") else None
+    D           =   gv.Drag.to(device) if isfield(gv, "Drag") else None
 
     # Xci         = state_derivs[:6*num_pieces]
     # Xcidot      = state_derivs[6*num_pieces:12*num_pieces]
@@ -162,10 +231,10 @@ def compute_fwd_dynamics(t, state_derivs, gv):
     xci1 = Xci[:6,].squeeze();   xcidot1 = Xcidot[:6,].squeeze(); k1 = xci1[:3]; 
     theta1 = torch.sqrt(k1.T@k1) # angular strain
     # genMasM, genCoriolis1, genGraV, genTorque,genDragForces, genCableForces, genCoriolis2,  adetan_prev,Jaco_prev,\
-    global MasX, LMasX, LRMasX, LRCo1X, DragX, LRDragX, RMasX,  \
-         Co2X, DragX,LDragX, RDragX, RCo1X,  LCo2X, Co1X, LCo1X, Mas_prev, LMas_prev, \
-         LRMas_prev, g_r, eta_prev,  g_prev, LRCo1_prev, Drag_prev, RMas_prev, \
-         Co1_prev, LCo1_prev, RCo1X, RCo1_prev, LRCo1X, LCo2_prev, LDrag_prev, RDrag_prev, LRDragX, Co2_prev, LRDrag_prev
+    # global MasX, LMasX, LRMasX, LRCo1X, DragX, LRDragX, RMasX,  \
+    #      Co2X, DragX,LDragX, RDragX, RCo1X,  LCo2X, Co1X, LCo1X, Mas_prev, LMas_prev, \
+    #      LRMas_prev, g_r, eta_prev,  g_prev, LRCo1_prev, Drag_prev, RMas_prev, \
+    #      Co1_prev, LCo1_prev, RCo1X, RCo1_prev, LRCo1X, LCo2_prev, LDrag_prev, RDrag_prev, LRDragX, Co2_prev, LRDrag_prev
          
 
     for ii in range(num_sections):
