@@ -108,8 +108,8 @@ qd_save = torch.zeros((6, 1)).to(device)
 # global variable
 gv = {"rho_arm": rho_arm, "rho_fluid": rho_water, "Gra": Gra,
         "L": L, "X": X, "R": R, "x": xci_star, "A": A,"Eps": Eps,
-        "Upsilon": Upsilon,"M": M, "Drag": D, "tsol": np.array((0)),
-        "num_sections": num_sections,"dX": dX, "tact": tact,  "trel": trel, 
+        "Upsilon": Upsilon,"M": M, "Drag": D, "tsol": np.array((0)), "tsol_slow": np.array((0)), 
+        "num_sections": num_sections,"dX": dX, "tact": tact,  "trel": trel, "tsol_fast": np.array((0)), 
         "Fax": Fax, "Fay": Fay, "Faz" : Faz, "Famx": Famx, "Famy": Famy,"Famz": Famz, 
         "Fpx" : Fpx,"Fpy": Fpy, "Fpz": Fpz, "Fpmx": Fpmx, "Fpmy": Fpmy, "Fpmz": Fpmz,
         "xci_star": xci_star, "qd_save": qd_save, "qd_dot_save": qd_save, 

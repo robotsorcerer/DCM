@@ -81,7 +81,7 @@ def piecewise_slow_pdes(t, state_derivs, gv):
     
     torch.save(dumpee, join(gv.save_dir, 'slow_dyna_dump.pt'))
 
-    gv.tsol = np.vstack((gv.tsol, [t.item()]))
+    gv.tsol_slow = np.vstack((gv.tsol_slow, [t.item()]))
     gv.sol_slow = torch.vstack((gv.sol_slow, z_point.T))
 
     # # append these for the fist section's qd only since it is uniform through all sections
@@ -207,6 +207,7 @@ def piecewise_fast_pdes(t, state_derivs, gv):
     qd_core     = gv.qd_fast(t)    
     q_core_tilde = q_core - qd_core; 
     qd_prime_core = gv.perturb*gv.qd_dot_fast(t)    
+    qd_prime_core_tilde = z_core - qd_prime_core  
     qd_pprime_core = gv.perturb**2*gv.qd_ddot_fast(t)   
 
     'solve the rhs of dynamics'
@@ -219,14 +220,14 @@ def piecewise_fast_pdes(t, state_derivs, gv):
     'solve for control'
     gain_term = gv.Kq.T.matmul(pinv(gv.Kq.matmul(gv.Kq.T))).matmul(gv.Kp).matmul(q_core_tilde)
     u_core = (1/gv.perturb) * hcore_pert.matmul(z_pert_prime) - s_core 
-    u_core += (1/gv.perturb) * hcore.matmul( qd_pprime_core - q_core_tilde - 2 * qd_prime_core - gain_term)
+    u_core += (1/gv.perturb) * hcore.matmul( qd_pprime_core - q_core_tilde - 2 * qd_prime_core_tilde - gain_term)
                 
     z_core_prime = hcore_inv @ (gv.perturb * (s_core + u_core) - hcore_pert.matmul(z_pert_prime))
 
 
     z_point     = torch.vstack((z_core, z_core_prime))
 
-    gv.tsol = np.vstack((gv.tsol, [t.item()]))
+    gv.tsol_fast = np.vstack((gv.tsol_fast, [t.item()]))
     gv.sol_fast = torch.vstack((gv.sol_fast, z_point.T))
 
     # append these for the fist section's qd only since it is uniform through all sections
