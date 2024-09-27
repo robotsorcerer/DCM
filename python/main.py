@@ -33,10 +33,10 @@ import matplotlib.pyplot as plt
 
 # parser = argparse.ArgumentParser('Cosserat Soft Arm Forward and Inverse Model')
 flags.DEFINE_bool('verbose', default=True, help="run in verbose print mode.")
-flags.DEFINE_integer('num_pieces', default=6, lower_bound=1, upper_bound=10, help="Number of DC PCS.")
+flags.DEFINE_integer('num_pieces', default=6, lower_bound=1, upper_bound=15, help="Number of DC PCS.")
 flags.DEFINE_integer('num_slow_pieces', default=2, lower_bound=1, upper_bound=10, help="Number of DC PCS.")
 flags.DEFINE_integer('num_fast_pieces', default=4, lower_bound=1, upper_bound=10, help="Number of DC PCS.")
-flags.DEFINE_integer('t_time', default=30, lower_bound=10, upper_bound=40, help='length of time (X1000s) for simulation')
+flags.DEFINE_integer('t_time', default=30, lower_bound=10, upper_bound=1000, help='length of time (X1000s) for simulation')
 flags.DEFINE_bool('with_cable', True, help='control with cable-driven  dynamics')
 flags.DEFINE_bool('with_drag', True, help= 'control underwater with drag forces?')
 flags.DEFINE_string('resume', None, help= 'Resume from a previously checkpointed | Provide full path to model')
@@ -52,7 +52,7 @@ flags.DEFINE_float('gain_deriv', 5.5, help="Derivative gain for PD/PID controlle
 flags.DEFINE_float('gain_integ', 1.2, help="Integral gain for PID controller")
 flags.DEFINE_float('perturb', 0.01, help="singularly perturbed parameter for fast time scale")
 flags.DEFINE_string('controller', "spt", help="'spt | PD | PID'")
-flags.DEFINE_string('reference', "setpoint", help="'setpoint or trajectory tracking?', 'setpoint | traktrack'")
+flags.DEFINE_string('reference', "setpoint", help="'setpoint or trajectory tracking?', 'setpoint | trajtrack'")
 flags.DEFINE_string('integrator', default="fehlberg2", help="'felhberg2 | dopri8 | dopri5 | euler | midpoint | rk4'")
 
 FLAGS = flags.FLAGS
@@ -101,8 +101,8 @@ def main(argv):
 
     #-------------------------------------------------------------------------
     # Strain initial conditions
-    xi_0          = torch.tensor(([[0., 0., 0., 1.0, 0., 0.]]), dtype=torch.float64) #.float()
-    xidot_0       = torch.tensor(([[0., 0., 0., 1.0, 0., 0.]]), dtype=torch.float64) #.float()  #torch.zeros((1, 6))  
+    xi_0          = torch.tensor(([[0., 0., 0., 1.0, 0., 0.]]), dtype=torch.float64) 
+    xidot_0       = torch.tensor(([[0., 0., 0., 1.0, 0., 0.]]), dtype=torch.float64) 
 
     state_derivs  = torch.hstack((torch.tile(xi_0,[1,FLAGS.num_pieces]), torch.tile(xidot_0,[1,FLAGS.num_pieces]) )).T.to(device)
     slow_state_derivs  = torch.hstack((torch.tile(xi_0,[1,FLAGS.num_slow_pieces]), torch.tile(xidot_0,[1,FLAGS.num_slow_pieces]) )).T #.to(device)
@@ -127,9 +127,9 @@ def main(argv):
     if os.path.exists(join(gv.save_dir, 'slow_dyna_dump.pt')):
         os.remove(join(gv.save_dir, 'slow_dyna_dump.pt'))
         
-    qd            = torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]])
-    qd_dot        = torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]]); 
-    qd_ddot        = torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]])
+    qd            = torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]], dtype=torch.float64) 
+    qd_dot        = torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]], dtype=torch.float64)
+    qd_ddot       = torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]], dtype=torch.float64) 
 
     gv.qd_slow = lambda t: torch.tile(qd.T, (FLAGS.num_slow_pieces, 1))
     gv.qd_dot_slow = lambda t: torch.tile(qd_dot.T, (FLAGS.num_slow_pieces, 1))
@@ -145,13 +145,13 @@ def main(argv):
         if strcmp(FLAGS.reference.lower(), 'trajtrack'):
             from math import sin, cos
             # track linear and angular strains that is sinusoidal in the +y direction in addition to a varying tip load throughout the soft material body
-            gv.qd_slow = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1,  sin(FLAGS.desired_strain*10*t), 0]]).T, (FLAGS.num_slow_pieces, 1))
-            gv.qd_dot_slow = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, 10*cos(FLAGS.desired_strain*10*t), 0]]).T, (FLAGS.num_slow_pieces, 1))
-            gv.qd_ddot_slow = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, -100*sin(FLAGS.desired_strain*10*t),0]]).T, (FLAGS.num_slow_pieces, 1))
+            gv.qd_slow = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1,  sin(FLAGS.desired_strain*10*t), 0]], dtype=torch.float64).T, (FLAGS.num_slow_pieces, 1))
+            gv.qd_dot_slow = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, 10*cos(FLAGS.desired_strain*10*t), 0]], dtype=torch.float64).T, (FLAGS.num_slow_pieces, 1))
+            gv.qd_ddot_slow = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, -100*sin(FLAGS.desired_strain*10*t),0]], dtype=torch.float64).T, (FLAGS.num_slow_pieces, 1))
 
-            gv.qd_fast = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1,  sin(FLAGS.desired_strain*10*t), 0]]).T.to(t.device), (FLAGS.num_fast_pieces, 1))
-            gv.qd_dot_fast = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, 10*cos(FLAGS.desired_strain*10*t), 0]]).T.to(t.device), (FLAGS.num_fast_pieces, 1))
-            gv.qd_ddot_fast = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, -100*sin(FLAGS.desired_strain*10*t),0]]).T.to(t.device), (FLAGS.num_fast_pieces, 1))
+            gv.qd_fast = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1,  sin(FLAGS.desired_strain*10*t), 0]], dtype=torch.float64).T.to(t.device), (FLAGS.num_fast_pieces, 1))
+            gv.qd_dot_fast = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, 10*cos(FLAGS.desired_strain*10*t), 0]], dtype=torch.float64).T.to(t.device), (FLAGS.num_fast_pieces, 1))
+            gv.qd_ddot_fast = lambda t: torch.tile(torch.tensor([[0, 0, 0, 1, -100*sin(FLAGS.desired_strain*10*t),0]], dtype=torch.float64).T.to(t.device), (FLAGS.num_fast_pieces, 1))
 
         # specify the controller gains if PD or PID
         if strcmp(FLAGS.controller.lower(), 'pd') or strcmp(FLAGS.controller.lower(), 'pid'):
@@ -164,8 +164,8 @@ def main(argv):
             gv.num_slow_pieces = FLAGS.num_slow_pieces
             gv.perturb = FLAGS.perturb 
 
-            gv.Kp    = FLAGS.backstep_p*torch.eye(6*FLAGS.num_fast_pieces) #.to(state_derivs.device)
-            gv.Kq    = FLAGS.backstep_d*torch.eye(6*FLAGS.num_fast_pieces) #.to(state_derivs.device)        
+            gv.Kp    = FLAGS.backstep_p*torch.eye(6*FLAGS.num_fast_pieces) 
+            gv.Kq    = FLAGS.backstep_d*torch.eye(6*FLAGS.num_fast_pieces)       
 
             slow_cl_derivs = lambda t, state_derivs: piecewise_slow_pdes(t, state_derivs.cpu(), gv)
             # time.sleep(4) # wait to dump first z_pert_prime before running fast loop
@@ -201,7 +201,8 @@ def main(argv):
                     fname = gv.fname.split(".npz")[0]+"_final.npz",
                     slow_solution=sol_slow.detach().cpu().numpy(), 
                     fast_solution=sol_fast.detach().cpu().numpy(), 
-                    soltime=gv.tsol,
+                    tsol_slow=gv.tsol_slow,
+                    tsol_fast=gv.tsol_fast,
                     runtime=toc-tic, 
                     with_drag=FLAGS.with_drag, 
                     with_cable=FLAGS.with_cable,  
@@ -218,12 +219,11 @@ def main(argv):
                     tip_load=FLAGS.tip_load, 
                     controller=FLAGS.controller, 
                     desired_strain=gv.desired_strain,
-                    qd_slow=gv.qd_slow.detach().cpu().numpy(), 
-                    qd_dot_slow=gv.qd_dot_slow.detach().cpu().numpy(), 
-                    qd_ddot_slow=gv.qd_ddot_slow.detach().cpu().numpy(), 
-                    qd_fast=gv.qd_fast.detach().cpu().numpy(), 
-                    qd_dot_fast=gv.qd_dot_fast.detach().cpu().numpy(), 
-                    qd_ddot_fast=gv.qd_ddot_fast.detach().cpu().numpy(), 
+                    tspan=tspan.detach().cpu().numpy(),
+                    qd=qd.numpy(), 
+                    qd_dot=qd_dot.numpy(), 
+                    qd_ddot=qd_ddot.numpy(), 
+                    t_time = FLAGS.t_time
                     )
 
 if __name__ == "__main__":

@@ -49,45 +49,45 @@ def do_ordered_blkdiag(M: torch.tensor) -> torch.tensor:
     return M
 
 
-def separate_mass_mat(massmat: torch.Tensor, core_slice: slice, \
-                      pert_slice: slice, pert_uprt: tuple, pert_bot_left: tuple)->Bundle:
+def separate_mass_mat(massmat: torch.Tensor, fast_slice: slice, \
+                      slow_slice: slice, slow_uprt: tuple, slow_bot_left: tuple)->Bundle:
     """
-        Separate the mass inertia tensor into a core and perturbation 
-        part based on supplied slice indices, core_slice.
+        Separate the mass inertia tensor into a fast and slowurbation 
+        part based on supplied slice indices, fast_slice.
 
         Inputs: 
             Massmat: Diagonalized massmat that sorts the mass of the sections in 
             order from most weighty sections to least weighty section according to 
             the eigenvalues of the mass matrix.
 
-            core_slice: A slice of the core mass matrix that allows us to index Mp
+            fast_slice: A slice of the fast mass matrix that allows us to index Mp
             and Mc.
 
-            pert_slice: slices of the perturbed matrix == subblock of Mp
+            slow_slice: slices of the slowurbed matrix == subblock of Mp
 
-            pert_uprt: indices for H_pert^core 
+            slow_uprt: indices for H_slow^fast 
 
-            pert_bot_left: indices for H_core^pert
+            slow_bot_left: indices for H_fast^slow
 
         Returns:
-            A Bundle of Mc and Mp, Hcore, Hpert, H^core_pert and H^pert_core
+            A Bundle of Mc and Mp, Hfast, Hslow, H^fast_slow and H^slow_fast
             based on equation (11) in the paper.
     """
     # Mc = torch.zeros_like(massmat); 
     # massmat = do_ordered_blkdiag(massmat)
 
     Mp = torch.zeros_like(massmat)
-    Mp_mask = torch.ones_like(massmat, dtype=bool); Mp_mask[core_slice, core_slice] = False 
-    Mc = massmat[core_slice, core_slice];   Mp[Mp_mask==True] = massmat[Mp_mask==True]
+    Mp_mask = torch.ones_like(massmat, dtype=bool); Mp_mask[fast_slice, fast_slice] = False 
+    Mc = massmat[fast_slice, fast_slice];   Mp[Mp_mask==True] = massmat[Mp_mask==True]
     
-    hpert = Mp[pert_slice, pert_slice]
-    hcore = Mc[core_slice, core_slice]; 
-    hcore_pert = Mp[pert_uprt[0], pert_uprt[1]]
-    hpert_core = Mp[pert_bot_left[0], pert_bot_left[1]]
+    hslow = Mp[slow_slice, slow_slice]
+    hfast = Mc[fast_slice, fast_slice]; 
+    hfast_slow = Mp[slow_uprt[0], slow_uprt[1]]
+    hslow_fast = Mp[slow_bot_left[0], slow_bot_left[1]]
     
     
-    hmat = Bundle(dict(Mc = Mc, Mp=Mp, hcore=hcore, hpert=hpert, \
-                       hcore_pert=hcore_pert, hpert_core=hpert_core))
+    hmat = Bundle(dict(Mc = Mc, Mp=Mp, hfast=hfast, hslow=hslow, \
+                       hfast_slow=hfast_slow, hslow_fast=hslow_fast))
     
     return hmat
 
@@ -231,11 +231,11 @@ def test_all():
     print('Sorted Mass')
     print(diaged)
 
-    hmat = separate_mass_mat(diaged, core_slice=slice(0, 3), pert_slice=slice(3, 5), 
-                                    pert_uprt=(slice(0, 3), slice(3, 5)), pert_bot_left=(slice(3, 5), slice(0, 3)))
+    hmat = separate_mass_mat(diaged, fast_slice=slice(0, 3), slow_slice=slice(3, 5), 
+                                    slow_uprt=(slice(0, 3), slice(3, 5)), slow_bot_left=(slice(3, 5), slice(0, 3)))
     print('Mc')
     print(hmat.Mc); print('Mp'); print(hmat.Mp)
 
-    print('hcore:'); print(); print(hmat.hcore); print('hpert'); print(hmat.hpert)
-    print('hcp'); print(); print(hmat.hcore_pert)
-    print('hpc'); print(); print(hmat.hpert_core)    
+    print('hfast:'); print(); print(hmat.hfast); print('hslow'); print(hmat.hslow)
+    print('hcp'); print(); print(hmat.hfast_slow)
+    print('hpc'); print(); print(hmat.hslow_fast)    
