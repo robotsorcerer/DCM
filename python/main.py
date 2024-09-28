@@ -71,22 +71,31 @@ def main(argv):
     #========================== Global Params ==============================================================#
     logger.info('>>====================================Time-advancing=====================================<<')
     logger.info(f'Num of sections: {num_sections}, Num of pieces: {FLAGS.num_pieces}')
-    logger.info(f'Params:: Controller: {FLAGS.controller} | Underwater: {FLAGS.with_drag} | Cable-driven: {FLAGS.with_cable}')
-    logger.info(f'Params:: Tip load: {FLAGS.tip_load}N | Kp: {FLAGS.gain_prop} | KD: {FLAGS.gain_deriv}')
+    if strcmp(FLAGS.controller, 'PD') or strcmp(FLAGS.controller, 'PID'):
+        logger.info(f'Params:: Controller: {FLAGS.controller} | Underwater: {FLAGS.with_drag} | Cable-driven: {FLAGS.with_cable}')
+        logger.info(f'Params:: Tip load: {FLAGS.tip_load}N | Kp: {FLAGS.gain_prop} | KD: {FLAGS.gain_deriv}')
+    elif strcmp(FLAGS.controller, 'spt') :
+        logger.info(f'Params:: Controller: {FLAGS.controller} | Tip load: {FLAGS.tip_load}N | Kp: {FLAGS.backstep_p} | Kd: {FLAGS.backstep_d}')
+
     #========================================================================================================#
 
     #===================================== Save galleries===================================================#
     data_dir = join(f"/opt/SoRo{FLAGS.controller.upper()}") 
     os.makedirs(data_dir) if not os.path.exists(data_dir) else None 
 
-    fname = datetime.strftime(datetime.now(), '%m%d%y_%H_%M_%S')
-    if FLAGS.with_drag:
-        fname = fname + "_drag"
-    if FLAGS.with_cable:
-        fname = fname + "_cable"
-    if FLAGS.with_grav:
-        fname = fname + "_grav"
-    fname += f"_{FLAGS.num_pieces}pcs_{FLAGS.tip_load}N_{FLAGS.controller}.npz"
+    fname = f"{FLAGS.controller.lower()}cont_{datetime.strftime(datetime.now(), '%m%d%y_%H%M%S')}"
+    if strcmp(FLAGS.controller, "PD") or strcmp(FLAGS.controller, "PID"):
+        if FLAGS.with_drag:
+            fname = fname + "_drag"
+        if FLAGS.with_cable:
+            fname = fname + "_cable"
+        if FLAGS.with_grav:
+            fname = fname + "_grav"
+        fname += f"_{FLAGS.num_pieces}pcs_{FLAGS.tip_load}N_{FLAGS.controller}"
+    else:
+        fname += f"_{FLAGS.num_pieces}pcs_{FLAGS.num_fast_pieces}fastpcs_"
+        fname += f"{FLAGS.num_slow_pieces}slowpcs_kp{FLAGS.backstep_p}_"
+        fname += f"kd{FLAGS.backstep_d}_Fpy{FLAGS.tip_load}N"
 
     logger.info(f"fname:  {join(data_dir, fname)}")
     #========================================================================================================#
@@ -127,9 +136,13 @@ def main(argv):
     if os.path.exists(join(gv.save_dir, 'slow_dyna_dump.pt')):
         os.remove(join(gv.save_dir, 'slow_dyna_dump.pt'))
         
-    qd            = torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]], dtype=torch.float64) 
-    qd_dot        = torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]], dtype=torch.float64)
-    qd_ddot       = torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]], dtype=torch.float64) 
+    qd            = torch.tensor([[0, np.pi/3, np.pi, 0.85, FLAGS.desired_strain, np.pi/4]], dtype=torch.float64) 
+    qd_dot        = qd * 2
+    qd_ddot       = qd_dot * np.pi  #torch.tensor([[0, np.pi/3, np.pi, 0.65, FLAGS.desired_strain/4, np.pi/8]], dtype=torch.float64) 
+
+    # qd            = torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]], dtype=torch.float64) 
+    # qd_dot        = torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]], dtype=torch.float64)
+    # qd_ddot       = torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]], dtype=torch.float64) 
 
     gv.qd_slow = lambda t: torch.tile(qd.T, (FLAGS.num_slow_pieces, 1))
     gv.qd_dot_slow = lambda t: torch.tile(qd_dot.T, (FLAGS.num_slow_pieces, 1))
@@ -192,13 +205,13 @@ def main(argv):
         # logger.info(f"fast dynamics solution for cur session:  {fast_thread.join()}")
 
     toc =  time.time()
-    fname_final = join(gv.data_dir, gv.fname.split(".npz")[0]+"_final.npz")
+    fname_final = join(gv.data_dir, fname+".npz")
     print(f"Post-processing {fname_final} |  {(toc-tic):.4f} secs or {((toc-tic)/60):.4f} minutes")
     print("\n\n=======Starting New Session\n\n")
 
     toc = time.time()
     np.savez_compressed(fname_final, 
-                    fname = gv.fname.split(".npz")[0]+"_final.npz",
+                    fname = fname_final, #gv.fname.split(".npz")[0]+"_final.npz",
                     slow_solution=sol_slow.detach().cpu().numpy(), 
                     fast_solution=sol_fast.detach().cpu().numpy(), 
                     tsol_slow=gv.tsol_slow,
@@ -223,7 +236,9 @@ def main(argv):
                     qd=qd.numpy(), 
                     qd_dot=qd_dot.numpy(), 
                     qd_ddot=qd_ddot.numpy(), 
-                    t_time = FLAGS.t_time
+                    t_time = FLAGS.t_time,
+                    nsol = nsol,
+                    perturb=FLAGS.perturb
                     )
 
 if __name__ == "__main__":
