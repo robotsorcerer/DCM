@@ -50,7 +50,7 @@ flags.DEFINE_float('backstep_d', 4.3, help="Kd gain for backstep controller")
 flags.DEFINE_float('gain_deriv', 5.5, help="Derivative gain for PD/PID controller")
 flags.DEFINE_float('gain_integ', 1.2, help="Integral gain for PID controller")
 flags.DEFINE_float('perturb', 0.01, help="singularly perturbed parameter for fast time scale")
-flags.DEFINE_string('controller', "spt", help="'spt | PD | PID'")
+flags.DEFINE_string('controller', "pd", help="'spt | PD | PID'")
 flags.DEFINE_string('reference', "setpoint", help="'setpoint or trajectory tracking?', 'setpoint | trajtrack'")
 flags.DEFINE_string('integrator', default="fehlberg2", help="'felhberg2 | dopri8 | dopri5 | euler | midpoint | rk4'")
 
@@ -140,6 +140,9 @@ def main(argv):
         qd_dot        = qd * 2
         qd_ddot       = qd_dot * np.pi  #torch.tensor([[0, np.pi/3, np.pi, 0.65, FLAGS.desired_strain/4, np.pi/8]], dtype=torch.float64) 
 
+        gv.qd = lambda t: torch.tile(qd.T, (FLAGS.num_pieces, 1)); 
+        gv.qd_dot = lambda t: torch.tile(qd_dot.T, (FLAGS.num_pieces, 1)); 
+        gv.qd_ddot = lambda t: torch.tile(qd_ddot.T, (FLAGS.num_pieces, 1)); 
         # qd            = torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]], dtype=torch.float64) 
         # qd_dot        = torch.tensor([[0, 0, 0, 1, 2*FLAGS.desired_strain, 0]], dtype=torch.float64)
         # qd_ddot       = torch.tensor([[0, 0, 0, 1, FLAGS.desired_strain, 0]], dtype=torch.float64) 

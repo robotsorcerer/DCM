@@ -17,6 +17,7 @@ import numpy as np
 from os.path import join
 from utils.cosserat_utils import *
 from utils.config import *
+from utils.matlab_utils import strcmp
 from utils.io_utils import *
 from .dynamics import compute_fwd_dynamics
 from scipy.integrate import cumulative_trapezoid
@@ -187,7 +188,7 @@ def piecewise_pdes(t, state_derivs, gv):
     genCoriolis1 = dynamics.C1; genCoriolis2 = dynamics.C2; 
     genCableForces = dynamics.F; genDragForces = dynamics.D
     buoyancyGravTerm = dynamics.Nterm; genMasM= dynamics.M
-    genGraV, genTorque = dynamics.genGraV, dynamics.genTorque
+    genGraV, genTorque = dynamics.G, dynamics.T
     num_pieces  =   gv.num_pieces; Gra = gv.Gra
 
     # #-------------------------------------------------------------------------
