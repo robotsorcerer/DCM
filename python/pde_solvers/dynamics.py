@@ -24,80 +24,6 @@ torch.set_default_dtype(torch.float64)
 #  F, T, G, Nterm = 36 x 1
 Dynamics = namedtuple('Dynamics', ('M', 'C1', 'C2', 'D', 'F', 'G', 'T', 'Nterm'))
 
-# preallocations 
-# device = 'cuda:0'
-
-# "Mass matrix for the current configuration, parameterized by X"
-# MasX            = torch.zeros((6,6*num_sections)).to(device)
-# LMasX           = torch.zeros((6,6*num_sections)).to(device)
-# RMasX           = torch.zeros((6,6*num_sections)).to(device)
-# LRMasX          = torch.zeros((6,6*num_sections)).to(device)
-
-# "Coriolis forces 1"
-# Co1X            = torch.zeros((6,6*num_sections)).to(device)
-# LCo1X           = torch.zeros((6,6*num_sections)).to(device)
-# RCo1X           = torch.zeros((6,6*num_sections)).to(device)
-# LRCo1X          = torch.zeros((6,6*num_sections)).to(device)
-
-# "Coriolis forces 2"
-# Co2X            = torch.zeros((6,6*num_sections)).to(device)
-# LCo2X           = torch.zeros((6,6*num_sections)).to(device)
-
-# "Drag forces"
-# DragX           = torch.zeros((6,6*num_sections)).to(device)  
-# LDragX          = torch.zeros((6,6*num_sections)).to(device)  
-# RDragX          = torch.zeros((6,6*num_sections)).to(device)  
-# LRDragX         = torch.zeros((6,6*num_sections)).to(device)  
-
-# Mas_prev        = torch.zeros((6,6)).to(device)
-# LMas_prev       = torch.zeros((6,6)).to(device)
-# RMas_prev       = torch.zeros((6,6)).to(device)
-# LRMas_prev      = torch.zeros((6,6)).to(device)
-
-# Co1_prev        = torch.zeros((6,6)).to(device)
-# LCo1_prev       = torch.zeros((6,6)).to(device)
-# RCo1_prev       = torch.zeros((6,6)).to(device)
-# LRCo1_prev      = torch.zeros((6,6)).to(device)
-
-# Co2_prev        = torch.zeros((6,6)).to(device)
-# LCo2_prev       = torch.zeros((6,6)).to(device)
-
-# Drag_prev       = torch.zeros((6,6)).to(device)  
-# LDrag_prev      = torch.zeros((6,6)).to(device)  
-# RDrag_prev      = torch.zeros((6,6)).to(device)  
-# LRDrag_prev     = torch.zeros((6,6)).to(device)  
-
-# num_sections    = gv["num_sections"] 
-
-# # sectional matrices per discretization in each piece
-# MasX             = torch.zeros((6,6*num_sections)).to(device)
-# LMasX            = torch.zeros((6,6*num_sections)).to(device)
-# LRMasX           = torch.zeros((6,6*num_sections)).to(device)
-
-# DragX            = torch.zeros((6, 6*num_sections)).to(device)
-# LDragX            = torch.zeros((6, 6*num_sections)).to(device)
-# LRDragX          = torch.zeros((6,6*num_sections)).to(device)  
-
-# LRCo1X           = torch.zeros((6,6*num_sections)).to(device)
-
-# Mas_prev         = torch.zeros((6,6)).to(device)
-# LMas_prev        = torch.zeros((6,6)).to(device)
-# LRMas_prev       = torch.zeros((6,6)).to(device)
-    
-# Drag_prev        = torch.zeros((6,6)).to(device)  
-# LDrag_prev       = torch.zeros((6,6)).to(device)  
-# LRDrag_prev      = torch.zeros((6,6)).to(device)  
-
-# LRCo1_prev       = torch.zeros((6,6)).to(device)
-
-# # Initialize previous kinematics
-# g_r              = torch.tensor([[0.0, -1.0, 0.0, 0.0],
-#                             [1.0, 0.0, 0.0, 0.0],
-#                             [0.0, 0.0, 1.0, 0.0],
-#                             [0.0, 0.0, 0.0, 1.0]]).to(device)     # cantilever
-# g_prev           = torch.asarray(torch.diagflat((torch.ones((4)).to(device))))
-# eta_prev         = torch.zeros((6)).to(device)
-
 def compute_fwd_dynamics(t, state_derivs, gv):
     """
         Returns the whole robot dynamics at time t
@@ -229,13 +155,7 @@ def compute_fwd_dynamics(t, state_derivs, gv):
 
     # mass and coriolis 1 of the first section
     xci1 = Xci[:6,].squeeze();   xcidot1 = Xcidot[:6,].squeeze(); k1 = xci1[:3]; 
-    theta1 = torch.sqrt(k1.T@k1) # angular strain
-    # genMasM, genCoriolis1, genGraV, genTorque,genDragForces, genCableForces, genCoriolis2,  adetan_prev,Jaco_prev,\
-    # global MasX, LMasX, LRMasX, LRCo1X, DragX, LRDragX, RMasX,  \
-    #      Co2X, DragX,LDragX, RDragX, RCo1X,  LCo2X, Co1X, LCo1X, Mas_prev, LMas_prev, \
-    #      LRMas_prev, g_r, eta_prev,  g_prev, LRCo1_prev, Drag_prev, RMas_prev, \
-    #      Co1_prev, LCo1_prev, RCo1X, RCo1_prev, LRCo1X, LCo2_prev, LDrag_prev, RDrag_prev, LRDragX, Co2_prev, LRDrag_prev
-         
+    theta1 = torch.sqrt(k1.T@k1) # angular strain         
 
     for ii in range(num_sections):
         coAdjg1_cur                     = piecewise_coAdjoint(X[ii],theta1,xci1)        # because J^T = Ad_g^{-1}^T = coAd_g^{-1}
@@ -358,9 +278,9 @@ def compute_fwd_dynamics(t, state_derivs, gv):
     genGraV          += Jaco_prev.T @ GraB @ Adjoint_mat6x6(pinv(g_prev))
 
     "Torque"
-    genTorque          += torch.vstack((L*(Fa1-Fi1).unsqueeze(1), torch.zeros((6*(num_pieces-1),1)).to(device))) # cavo tip2base
-    CableForces             = torch.vstack(( (invAdjg1_last @ intdAdjg1_last).T @ (invAdjg1R_last @ Fp1), torch.zeros((6*(num_pieces-1),1)).to(device) ))
-    genCableForces          += Jaco_prev.T @ CableForces
+    genTorque        += torch.vstack((L*(Fa1-Fi1).unsqueeze(1), torch.zeros((6*(num_pieces-1),1)).to(device))) # cavo tip2base
+    CableForces      = torch.vstack(( (invAdjg1_last @ intdAdjg1_last).T @ (invAdjg1R_last @ Fp1), torch.zeros((6*(num_pieces-1),1)).to(device) ))
+    genCableForces  += Jaco_prev.T @ CableForces
 
     """
         Now that we have genMasM, genCoriolis1, genDragForces, genGraV, genTorque, and genCableForces
